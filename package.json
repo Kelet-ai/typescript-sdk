@@ -9,6 +9,9 @@
     ".": {
       "import": "./src/index.ts",
       "types": "./src/index.ts"
+    },
+    "./reasoning/register": {
+      "import": "./src/reasoning/register.ts"
     }
   },
   "files": [
@@ -27,14 +30,24 @@
     "vercel-ai-sdk"
   ],
   "license": "MIT",
+  "dependencies": {
+    "import-in-the-middle": "^1.11.0",
+    "@opentelemetry/instrumentation": "^0.57.0"
+  },
   "devDependencies": {
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.211.0",
+    "@opentelemetry/sdk-trace-base": "^1.30.0",
+    "@opentelemetry/resources": "^1.30.0",
+    "@opentelemetry/semantic-conventions": "^1.28.0",
     "@types/bun": "latest"
   },
   "peerDependencies": {
     "@opentelemetry/api": "^1.0.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.50.0",
+    "@opentelemetry/sdk-trace-base": "^1.0.0",
+    "@opentelemetry/resources": "^1.0.0",
+    "ai": "^4.0.0",
     "typescript": "^5"
   },
   "peerDependenciesMeta": {

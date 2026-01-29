@@ -197,6 +197,27 @@ Works with any OpenTelemetry-compatible AI framework out of the box.
 
 ---
 
+## Reasoning Capture for Vercel AI SDK
+
+Vercel AI SDK's telemetry currently doesn't include reasoning/thinking content in spans ([vercel/ai#8823](https://github.com/vercel/ai/issues/8823)). Until an official fix, you can use this hook to capture reasoning from models that support extended thinking (like Claude with `reasoningConfig`).
+
+### Running with the Hook
+
+Use the `--import` flag (Node.js 18.19+) or equivalent to load the reasoning capture hook:
+
+```bash
+# Node.js
+node --import kelet/reasoning/register app.js
+
+# Bun
+bun --preload kelet/reasoning/register app.ts
+```
+
+The hook intercepts AI SDK's `generateText` and `streamText` functions using `import-in-the-middle`. When a response includes reasoning, it's captured in a span with:
+- `ai.response.reasoning` - the full reasoning text
+- `ai.reasoning.length` - character count
+---
+
 ## Configuration
 
 Set via environment variables:
