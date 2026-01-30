@@ -29,7 +29,7 @@
  * @packageDocumentation
  */
 
-export { KeletExporter, type KeletExporterOptions } from './exporter.ts';
-export { signal, SignalError, type SignalOptions } from './signal.ts';
-export { configure, type KeletConfig, type KeletConfigOptions } from './config.ts';
-export { SignalSource, SignalVote } from './types.ts';
+export { KeletExporter, type KeletExporterOptions } from './exporter';
+export { signal, SignalError, type SignalOptions } from './signal';
+export { configure, type KeletConfig, type KeletConfigOptions } from './config';
+export { SignalSource, SignalVote } from './types';

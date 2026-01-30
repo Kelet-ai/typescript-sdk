@@ -3,8 +3,8 @@
  * @module signal
  */
 
-import { resolveConfig } from './config.ts';
-import type { SignalSource, SignalVote } from './types.ts';
+import { resolveConfig } from './config';
+import type { SignalSource, SignalVote } from './types';
 
 /** Retry configuration */
 const MAX_RETRIES = 3;

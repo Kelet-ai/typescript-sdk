@@ -30,20 +30,25 @@ Three lines of code to start.
 ## Installation
 
 ```bash
-npm install kelet @opentelemetry/api @opentelemetry/exporter-trace-otlp-http
+npm install kelet @opentelemetry/api @opentelemetry/sdk-trace-node @opentelemetry/exporter-trace-otlp-http
 ```
 
 Or with your preferred package manager:
 
 ```bash
 # pnpm
-pnpm add kelet @opentelemetry/api @opentelemetry/exporter-trace-otlp-http
+pnpm add kelet @opentelemetry/api @opentelemetry/sdk-trace-node @opentelemetry/exporter-trace-otlp-http
 
 # yarn
-yarn add kelet @opentelemetry/api @opentelemetry/exporter-trace-otlp-http
+yarn add kelet @opentelemetry/api @opentelemetry/sdk-trace-node @opentelemetry/exporter-trace-otlp-http
 
-# bun
-bun add kelet @opentelemetry/api @opentelemetry/exporter-trace-otlp-http
+# bun (note: automatic reasoning capture not supported, see below)
+bun add kelet @opentelemetry/api @opentelemetry/sdk-trace-node @opentelemetry/exporter-trace-otlp-http
+```
+
+For reasoning capture, also install the instrumentation package:
+```bash
+npm install @opentelemetry/instrumentation
 ```
 
 Set your API key:
@@ -201,21 +206,66 @@ Works with any OpenTelemetry-compatible AI framework out of the box.
 
 Vercel AI SDK's telemetry currently doesn't include reasoning/thinking content in spans ([vercel/ai#8823](https://github.com/vercel/ai/issues/8823)). Until an official fix, you can use this hook to capture reasoning from models that support extended thinking (like Claude with `reasoningConfig`).
 
-### Running with the Hook
+### Prerequisites
 
-Use the `--import` flag (Node.js 18.19+) or equivalent to load the reasoning capture hook:
+The reasoning hook requires these peer dependencies:
 
 ```bash
-# Node.js
-node --import kelet/reasoning/register app.js
-
-# Bun
-bun --preload kelet/reasoning/register app.ts
+npm install @opentelemetry/instrumentation @opentelemetry/sdk-trace-base @opentelemetry/sdk-trace-node
 ```
 
-The hook intercepts AI SDK's `generateText` and `streamText` functions using `import-in-the-middle`. When a response includes reasoning, it's captured in a span with:
+### Node.js (Recommended)
+
+The automatic hook works with Node.js 18.19+ using ESM loaders:
+
+```bash
+# JavaScript
+node --import kelet/reasoning/register app.js
+
+# TypeScript (using tsx)
+npx tsx --import kelet/reasoning/register app.ts
+```
+
+The hook intercepts AI SDK's `generateText` and `streamText` functions using `import-in-the-middle`. When a response includes reasoning, it's captured as span attributes:
 - `ai.response.reasoning` - the full reasoning text
 - `ai.reasoning.length` - character count
+
+### Bun (or Alternative Import Approach)
+
+> **Note:** Bun does not support automatic module interception ([bun#3775](https://github.com/oven-sh/bun/issues/3775)). Use the `kelet/aisdk` import instead.
+
+Simply change your import from `'ai'` to `'kelet/aisdk'`:
+
+```typescript
+// Change this:
+import { generateText, streamText } from 'ai';
+
+// To this:
+import { generateText, streamText, wrapExporter } from 'kelet/aisdk';
+```
+
+Then wrap your exporter in your OTEL setup (one-time):
+
+```typescript
+import { wrapExporter } from 'kelet/aisdk';
+import { NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
+import { KeletExporter } from 'kelet';
+
+const provider = new NodeTracerProvider();
+const exporter = new KeletExporter({ apiKey: process.env.KELET_API_KEY });
+
+// Wrap exporter to allow reasoning capture before export
+provider.addSpanProcessor(new SimpleSpanProcessor(wrapExporter(exporter)));
+provider.register();
+```
+
+That's it! Reasoning will be captured automatically.
+
+**Alternative: Use Node.js via tsx** for fully automatic instrumentation (no code changes):
+```bash
+npx tsx --import kelet/reasoning/register app.ts
+```
+
 ---
 
 ## Configuration

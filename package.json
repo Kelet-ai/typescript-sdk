@@ -2,24 +2,40 @@
   "name": "kelet",
   "version": "0.1.0",
   "description": "Kelet TypeScript SDK for AI observability",
-  "module": "src/index.ts",
-  "main": "src/index.ts",
   "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./src/index.ts",
-      "types": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./aisdk": {
+      "types": "./dist/aisdk.d.ts",
+      "import": "./dist/aisdk.js"
     },
     "./reasoning/register": {
-      "import": "./src/reasoning/register.ts"
+      "types": "./dist/reasoning/register.d.ts",
+      "import": "./dist/reasoning/register.js"
     }
   },
   "files": [
-    "src"
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "test:node": "node --import tsx --test src/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "build": "bun run build:js && bun run build:types",
+    "build:js": "bun build ./src/index.ts ./src/aisdk.ts ./src/reasoning/register.ts --outdir ./dist --target node --format esm --splitting",
+    "build:types": "tsc --project tsconfig.build.json",
+    "prepublishOnly": "bun run build",
+    "verify-build": "bun test ./.github/build-verification.test.ts",
+    "clean": "rm -rf dist",
+    "checks": "bun run typecheck && bun test --run"
   },
   "keywords": [
     "kelet",
@@ -29,21 +45,28 @@
     "tracing",
     "vercel-ai-sdk"
   ],
-  "license": "MIT",
-  "dependencies": {
-    "import-in-the-middle": "^1.11.0",
-    "@opentelemetry/instrumentation": "^0.57.0"
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kelet-ai/typescript-sdk.git"
   },
+  "bugs": {
+    "url": "https://github.com/kelet-ai/typescript-sdk/issues"
+  },
+  "homepage": "https://kelet.ai",
   "devDependencies": {
     "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/instrumentation": "^0.57.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.211.0",
     "@opentelemetry/sdk-trace-base": "^1.30.0",
     "@opentelemetry/resources": "^1.30.0",
     "@opentelemetry/semantic-conventions": "^1.28.0",
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "tsx": "^4.19.0"
   },
   "peerDependencies": {
     "@opentelemetry/api": "^1.0.0",
+    "@opentelemetry/instrumentation": "^0.50.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.50.0",
     "@opentelemetry/sdk-trace-base": "^1.0.0",
     "@opentelemetry/resources": "^1.0.0",

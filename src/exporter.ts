@@ -4,7 +4,7 @@
  */
 
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { type KeletConfigOptions, resolveConfig, setSharedConfig } from './config.ts';
+import { type KeletConfigOptions, resolveConfig, setSharedConfig } from './config';
 
 /**
  * Options for KeletExporter.
