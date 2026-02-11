@@ -122,6 +122,9 @@ export function resolveConfig(options?: KeletConfigOptions): KeletConfig {
     process.env.KELET_API_URL ??
     'https://api.kelet.ai';
 
+  if (apiUrl.endsWith('/api')) {
+    apiUrl = apiUrl.slice(0, -4);
+  }
   if (apiUrl.endsWith('/')) {
     apiUrl = apiUrl.slice(0, -1);
   }
