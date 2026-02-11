@@ -115,12 +115,16 @@ export function resolveConfig(options?: KeletConfigOptions): KeletConfig {
     process.env.KELET_PROJECT ??
     'default';
 
-  const apiUrl =
+  let apiUrl =
     options?.apiUrl ??
     _sharedConfig?.apiUrl ??
     _globalConfig?.apiUrl ??
     process.env.KELET_API_URL ??
     'https://api.kelet.ai';
+
+  if (apiUrl.endsWith('/')) {
+    apiUrl = apiUrl.slice(0, -1);
+  }
 
   return { apiKey, project, apiUrl };
 }
