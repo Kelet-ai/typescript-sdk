@@ -20,6 +20,16 @@ describe('Build verification', () => {
       'KeletConfigOptions',
       'SignalSource',
       'SignalVote',
+      'agenticSession',
+      'getSessionId',
+      'getUserId',
+      'getTraceId',
+      'SESSION_ID_ATTR',
+      'USER_ID_ATTR',
+      'AgenticSessionOptions',
+      'KeletSpanProcessor',
+      'KeletSpanProcessorOptions',
+      'ConfigureOptions',
     ];
 
     expectedExports.forEach((exp) => {

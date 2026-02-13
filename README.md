@@ -74,20 +74,33 @@ configure({
 ### Node.js / General Setup
 
 ```typescript
-import { KeletExporter } from 'kelet';
-import { NodeSDK } from '@opentelemetry/sdk-node';
+import { configure } from 'kelet';
 
 // Set up tracing (once at app startup)
-const sdk = new NodeSDK({
-  traceExporter: new KeletExporter({
-    apiKey: process.env.KELET_API_KEY,
-    project: 'production',
-  }),
+// Creates exporter + span processor + provider automatically
+configure({
+  apiKey: process.env.KELET_API_KEY,
+  project: 'production',
 });
-sdk.start();
 ```
 
 Works with any OpenTelemetry-instrumented framework or library.
+
+If you already have a TracerProvider, pass it in:
+
+```typescript
+import { configure } from 'kelet';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+
+const provider = new NodeTracerProvider();
+provider.register();
+
+configure({
+  apiKey: process.env.KELET_API_KEY,
+  project: 'production',
+  tracerProvider: provider,
+});
+```
 
 ### Next.js Setup
 
@@ -171,6 +184,29 @@ await signal({
 ```
 
 **That's it.** Kelet now runs 24/7 analyzing every trace, clustering failure patterns, and identifying root causes—work that would take weeks manually.
+
+### Session Grouping
+
+Use `agenticSession` to group spans and signals under a session/user. All spans created and `signal()` calls made inside the callback automatically inherit the session context.
+
+```typescript
+import { configure, agenticSession, signal, SignalSource, SignalVote } from 'kelet';
+
+// configure() sets up the exporter + KeletSpanProcessor + provider
+configure({
+  apiKey: process.env.KELET_API_KEY,
+  project: 'my-project',
+});
+
+// Group work under a session
+await agenticSession({ sessionId: 'sess-123', userId: 'user-1' }, async () => {
+  // All spans created here get gen_ai.conversation.id + user.id attributes
+  // signal() auto-resolves sessionId from context — no need to pass it explicitly
+  await signal({ source: SignalSource.EXPLICIT, vote: SignalVote.UPVOTE });
+});
+```
+
+`configure()` automatically wires a `KeletSpanProcessor` that stamps `kelet.project`, `gen_ai.conversation.id`, and `user.id` on every span. Inside `agenticSession`, `signal()` automatically picks up the `sessionId` — no need to pass it explicitly.
 
 ### Easy Feedback UI for React
 
@@ -312,15 +348,15 @@ sdk.start();
 
 ### signal()
 
-Capture user feedback for AI responses.
+Capture user feedback for AI responses. Inside `agenticSession()`, `sessionId` and `traceId` are resolved automatically from context.
 
 ```typescript
 import { signal, SignalSource, SignalVote } from 'kelet';
 
 await signal({
   source: SignalSource.EXPLICIT,  // EXPLICIT | IMPLICIT
-  sessionId?: string,             // Session identifier (one required)
-  traceId?: string,               // Trace identifier (one required)
+  sessionId?: string,             // Auto-resolved from agenticSession, or pass explicitly
+  traceId?: string,               // Auto-resolved from active span, or pass explicitly
   vote?: SignalVote,              // UPVOTE | DOWNVOTE
   explanation?: string,           // User explanation
   triggerName?: string,           // e.g., "thumbs_up", "user_copy"
@@ -329,17 +365,57 @@ await signal({
 });
 ```
 
+### agenticSession()
+
+Group spans and signals under a session/user context.
+
+```typescript
+import { agenticSession } from 'kelet';
+
+await agenticSession({
+  sessionId: string,   // Required: session identifier
+  userId?: string,     // Optional: user identifier
+}, async () => {
+  // All spans and signals inside inherit session context
+});
+```
+
+### KeletSpanProcessor
+
+SpanProcessor that stamps `kelet.project`, session, and user attributes on every span. Used automatically by `configure()` — only needed for manual OTEL setups.
+
+```typescript
+import { KeletSpanProcessor } from 'kelet';
+import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+
+const processor = new KeletSpanProcessor(
+  new SimpleSpanProcessor(exporter),
+  { project: 'my-project' }
+);
+```
+
+### Context Helpers
+
+```typescript
+import { getSessionId, getUserId, getTraceId } from 'kelet';
+
+getSessionId()  // Current session ID from agenticSession, or undefined
+getUserId()     // Current user ID from agenticSession, or undefined
+getTraceId()    // Current trace ID from active OpenTelemetry span, or undefined
+```
+
 ### configure()
 
-Set global defaults for the SDK.
+Configure the SDK and set up the OTEL tracing pipeline. Creates an exporter, `KeletSpanProcessor`, and TracerProvider automatically.
 
 ```typescript
 import { configure } from 'kelet';
 
 configure({
-  apiKey?: string,
-  project?: string,
-  apiUrl?: string,
+  apiKey?: string,              // KELET_API_KEY env var if not provided
+  project?: string,             // defaults to "default"
+  apiUrl?: string,              // defaults to "https://api.kelet.ai"
+  tracerProvider?: BasicTracerProvider,  // Optional: use existing provider
 });
 ```
 

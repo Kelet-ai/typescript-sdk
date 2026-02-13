@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { resetConfig, configure } from './config.ts';
 import { signal } from './signal.ts';
 import { SignalSource, SignalVote } from './types.ts';
+import { agenticSession } from './context.ts';
 
 describe('signal', () => {
   let fetchMock: ReturnType<typeof mock>;
@@ -22,14 +23,14 @@ describe('signal', () => {
   });
 
   describe('validation', () => {
-    test('throws if neither sessionId nor traceId provided', async () => {
+    test('throws if neither sessionId nor traceId provided and no context', async () => {
       await expect(
         signal({
           source: SignalSource.EXPLICIT,
           vote: SignalVote.UPVOTE,
         })
       ).rejects.toThrow(
-        'Either sessionId or traceId required.'
+        'Either sessionId or traceId required. Use agenticSession() or pass explicitly.'
       );
     });
 
@@ -353,6 +354,64 @@ describe('signal', () => {
       });
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('agenticSession context resolution', () => {
+    test('resolves sessionId from agenticSession context', async () => {
+      await agenticSession({ sessionId: 'ctx-sess' }, async () => {
+        await signal({
+          source: SignalSource.EXPLICIT,
+          vote: SignalVote.UPVOTE,
+        });
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(options.body as string);
+      expect(body.session_id).toBe('ctx-sess');
+    });
+
+    test('explicit sessionId takes priority over context', async () => {
+      await agenticSession({ sessionId: 'ctx-sess' }, async () => {
+        await signal({
+          source: SignalSource.EXPLICIT,
+          sessionId: 'explicit-sess',
+          vote: SignalVote.UPVOTE,
+        });
+      });
+
+      const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(options.body as string);
+      expect(body.session_id).toBe('explicit-sess');
+    });
+
+    test('explicit traceId takes priority over context', async () => {
+      await agenticSession({ sessionId: 'ctx-sess' }, async () => {
+        await signal({
+          source: SignalSource.EXPLICIT,
+          traceId: 'explicit-trace',
+          vote: SignalVote.UPVOTE,
+        });
+      });
+
+      const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(options.body as string);
+      expect(body.trace_id).toBe('explicit-trace');
+      // sessionId from context should not be used when explicit traceId is given
+      // (but it will also be resolved from context)
+      expect(body.session_id).toBe('ctx-sess');
+    });
+
+    test('still throws when no context and no explicit ids', async () => {
+      await expect(
+        signal({
+          source: SignalSource.EXPLICIT,
+          vote: SignalVote.UPVOTE,
+        })
+      ).rejects.toThrow(
+        'Either sessionId or traceId required. Use agenticSession() or pass explicitly.'
+      );
     });
   });
 });

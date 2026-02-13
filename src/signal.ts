@@ -4,6 +4,7 @@
  */
 
 import { resolveConfig } from './config';
+import { getSessionId, getTraceId as getContextTraceId } from './context';
 import type { SignalSource, SignalVote } from './types';
 
 /** Retry configuration */
@@ -81,12 +82,15 @@ export class SignalError extends Error {
  * ```
  */
 export async function signal(options: SignalOptions): Promise<void> {
-  const { source, sessionId, traceId, vote, explanation, triggerName, selection, correction } =
-    options;
+  const { source, vote, explanation, triggerName, selection, correction } = options;
+
+  // Resolve identifiers: explicit param → context → error
+  const sessionId = options.sessionId ?? getSessionId();
+  const traceId = options.traceId ?? getContextTraceId();
 
   // Validate identifier
   if (!sessionId && !traceId) {
-    throw new Error('Either sessionId or traceId required.');
+    throw new Error('Either sessionId or traceId required. Use agenticSession() or pass explicitly.');
   }
 
   const config = resolveConfig();
