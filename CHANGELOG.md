@@ -1,3 +1,12 @@
+# [0.3.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.2.1...v0.3.0) (2026-02-13)
+
+
+### Features
+
+* enhance OpenTelemetry support with `agenticSession` and `KeletSpanProcessor` ([0da17d0](https://github.com/kelet-ai/typescript-sdk/commit/0da17d07c9feedfc7e5f590fd438a9592783acc9))
+
+
+
 ## [0.2.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.2.0...v0.2.1) (2026-02-11)
 
 
