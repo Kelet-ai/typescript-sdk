@@ -1,6 +1,6 @@
 {
   "name": "kelet",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Kelet TypeScript SDK for AI observability",
   "type": "module",
   "main": "./dist/index.js",

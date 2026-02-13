@@ -1,4 +1,13 @@
-# 0.2.0 (2026-02-11)
+## [0.2.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.2.0...v0.2.1) (2026-02-11)
+
+
+### Bug Fixes
+
+* kelet url resolution ([3d7e971](https://github.com/kelet-ai/typescript-sdk/commit/3d7e97120c5ecca5fcb63c48f8cf2f72a5c2b864))
+
+
+
+# [0.2.0](https://github.com/kelet-ai/typescript-sdk/compare/3348697b2de090058b99f1130339abb2b5dc959f...v0.2.0) (2026-02-11)
 
 
 ### Bug Fixes
