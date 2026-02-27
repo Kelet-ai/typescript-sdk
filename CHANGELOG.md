@@ -1,3 +1,6 @@
+### BREAKING CHANGES
+
+* **signal model redesign**: Replace `SignalVote` (UPVOTE/DOWNVOTE) and old `SignalSource` (IMPLICIT/EXPLICIT) with new `SignalKind` (feedback/edit/event/metric/arbitrary) and `SignalSource` (human/label/synthetic). Signal options now use `kind`, `source`, `score`, `value`, `confidence`, `metadata`, and `timestamp` instead of `vote`, `explanation`, `selection`, and `correction`.
 # [0.3.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.2.1...v0.3.0) (2026-02-13)
 
 

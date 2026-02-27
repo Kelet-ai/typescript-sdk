@@ -164,22 +164,25 @@ const result = await generateText({
 ### Capturing User Feedback
 
 ```typescript
-import { signal, SignalSource, SignalVote } from 'kelet';
+import { signal, SignalKind, SignalSource } from 'kelet';
 
 // Capture explicit user feedback
 await signal({
-  source: SignalSource.EXPLICIT,
+  kind: SignalKind.FEEDBACK,
+  source: SignalSource.HUMAN,
   sessionId: 'user-123-session',
-  vote: SignalVote.DOWNVOTE,  // User unhappy? Kelet analyzes why.
-  explanation: 'Response was incorrect',
+  score: 0.0,  // User unhappy? Kelet analyzes why.
+  value: 'Response was incorrect',
+  triggerName: 'thumbs_down',
 });
 
-// Capture implicit signals (e.g., user copied text)
+// Capture metric signals
 await signal({
-  source: SignalSource.IMPLICIT,
+  kind: SignalKind.METRIC,
+  source: SignalSource.SYNTHETIC,
   traceId: 'trace-abc-123',
-  triggerName: 'user_copy',
-  selection: 'copied text content',
+  triggerName: 'accuracy',
+  score: 0.85,
 });
 ```
 
@@ -190,7 +193,7 @@ await signal({
 Use `agenticSession` to group spans and signals under a session/user. All spans created and `signal()` calls made inside the callback automatically inherit the session context.
 
 ```typescript
-import { configure, agenticSession, signal, SignalSource, SignalVote } from 'kelet';
+import { configure, agenticSession, signal, SignalKind, SignalSource } from 'kelet';
 
 // configure() sets up the exporter + KeletSpanProcessor + provider
 configure({
@@ -202,7 +205,7 @@ configure({
 await agenticSession({ sessionId: 'sess-123', userId: 'user-1' }, async () => {
   // All spans created here get gen_ai.conversation.id + user.id attributes
   // signal() auto-resolves sessionId from context — no need to pass it explicitly
-  await signal({ source: SignalSource.EXPLICIT, vote: SignalVote.UPVOTE });
+  await signal({ kind: SignalKind.FEEDBACK, source: SignalSource.HUMAN, score: 1.0 });
 });
 ```
 
@@ -348,20 +351,22 @@ sdk.start();
 
 ### signal()
 
-Capture user feedback for AI responses. Inside `agenticSession()`, `sessionId` and `traceId` are resolved automatically from context.
+Capture signals for AI responses. Inside `agenticSession()`, `sessionId` and `traceId` are resolved automatically from context.
 
 ```typescript
-import { signal, SignalSource, SignalVote } from 'kelet';
+import { signal, SignalKind, SignalSource } from 'kelet';
 
 await signal({
-  source: SignalSource.EXPLICIT,  // EXPLICIT | IMPLICIT
-  sessionId?: string,             // Auto-resolved from agenticSession, or pass explicitly
-  traceId?: string,               // Auto-resolved from active span, or pass explicitly
-  vote?: SignalVote,              // UPVOTE | DOWNVOTE
-  explanation?: string,           // User explanation
-  triggerName?: string,           // e.g., "thumbs_up", "user_copy"
-  selection?: string,             // Selected/copied text
-  correction?: string | object,   // Corrected response
+  kind: SignalKind.FEEDBACK,       // feedback | edit | event | metric | arbitrary
+  source: SignalSource.HUMAN,      // human | label | synthetic
+  sessionId?: string,              // Auto-resolved from agenticSession, or pass explicitly
+  traceId?: string,                // Auto-resolved from active span, or pass explicitly
+  triggerName?: string,            // e.g., "thumbs_down", "user_copy"
+  score?: number,                  // 0.0 to 1.0
+  value?: string,                  // Text content
+  confidence?: number,             // 0.0 to 1.0
+  metadata?: Record<string, unknown>,  // Additional metadata
+  timestamp?: Date | string,       // Event timestamp
 });
 ```
 
@@ -422,16 +427,20 @@ configure({
 ### Types
 
 ```typescript
-// Signal source enum
-const SignalSource = {
-  IMPLICIT: 'IMPLICIT',  // Auto-detected (copy, time on page)
-  EXPLICIT: 'EXPLICIT',  // User action (thumbs up/down)
+// Signal kind enum
+const SignalKind = {
+  FEEDBACK: 'feedback',   // User feedback (ratings, thumbs)
+  EDIT: 'edit',            // User edited AI output
+  EVENT: 'event',          // System/app event
+  METRIC: 'metric',        // Numeric measurement
+  ARBITRARY: 'arbitrary',  // Custom signal
 } as const;
 
-// Vote type enum
-const SignalVote = {
-  UPVOTE: 'UPVOTE',
-  DOWNVOTE: 'DOWNVOTE',
+// Signal source enum
+const SignalSource = {
+  HUMAN: 'human',          // From a human user
+  LABEL: 'label',          // From labeling process
+  SYNTHETIC: 'synthetic',  // Synthetically generated
 } as const;
 ```
 

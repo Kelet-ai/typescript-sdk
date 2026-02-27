@@ -1,30 +1,46 @@
 import { describe, expect, test } from 'bun:test';
-import { SignalSource, SignalVote } from './types.ts';
+import { SignalKind, SignalSource } from './types.ts';
 
-describe('SignalSource', () => {
-  test('has IMPLICIT value', () => {
-    expect(SignalSource.IMPLICIT).toBe('IMPLICIT');
+describe('SignalKind', () => {
+  test('has FEEDBACK value', () => {
+    expect(SignalKind.FEEDBACK).toBe('feedback');
   });
 
-  test('has EXPLICIT value', () => {
-    expect(SignalSource.EXPLICIT).toBe('EXPLICIT');
+  test('has EDIT value', () => {
+    expect(SignalKind.EDIT).toBe('edit');
   });
 
-  test('only has two values', () => {
-    expect(Object.values(SignalSource)).toHaveLength(2);
+  test('has EVENT value', () => {
+    expect(SignalKind.EVENT).toBe('event');
+  });
+
+  test('has METRIC value', () => {
+    expect(SignalKind.METRIC).toBe('metric');
+  });
+
+  test('has ARBITRARY value', () => {
+    expect(SignalKind.ARBITRARY).toBe('arbitrary');
+  });
+
+  test('has five values', () => {
+    expect(Object.values(SignalKind)).toHaveLength(5);
   });
 });
 
-describe('SignalVote', () => {
-  test('has UPVOTE value', () => {
-    expect(SignalVote.UPVOTE).toBe('UPVOTE');
+describe('SignalSource', () => {
+  test('has HUMAN value', () => {
+    expect(SignalSource.HUMAN).toBe('human');
   });
 
-  test('has DOWNVOTE value', () => {
-    expect(SignalVote.DOWNVOTE).toBe('DOWNVOTE');
+  test('has LABEL value', () => {
+    expect(SignalSource.LABEL).toBe('label');
   });
 
-  test('only has two values', () => {
-    expect(Object.values(SignalVote)).toHaveLength(2);
+  test('has SYNTHETIC value', () => {
+    expect(SignalSource.SYNTHETIC).toBe('synthetic');
+  });
+
+  test('has three values', () => {
+    expect(Object.values(SignalSource)).toHaveLength(3);
   });
 });
