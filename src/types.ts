@@ -4,48 +4,56 @@
  */
 
 /**
- * Source of the signal (feedback).
+ * Kind of signal — what type of observation this is.
+ *
+ * @example
+ * ```typescript
+ * import { SignalKind } from 'kelet';
+ *
+ * await signal({
+ *   kind: SignalKind.FEEDBACK,
+ *   source: SignalSource.HUMAN,
+ *   sessionId: 'session-123',
+ *   score: 0.0,
+ * });
+ * ```
+ */
+export const SignalKind = {
+  /** User feedback (thumbs up/down, ratings). */
+  FEEDBACK: 'feedback',
+  /** User edited the AI output. */
+  EDIT: 'edit',
+  /** System or application event. */
+  EVENT: 'event',
+  /** Numeric metric measurement. */
+  METRIC: 'metric',
+  /** Custom/untyped signal. */
+  ARBITRARY: 'arbitrary',
+} as const;
+
+export type SignalKind = (typeof SignalKind)[keyof typeof SignalKind];
+
+/**
+ * Source of the signal — who/what generated it.
  *
  * @example
  * ```typescript
  * import { SignalSource } from 'kelet';
  *
  * await signal({
- *   source: SignalSource.EXPLICIT,
+ *   kind: SignalKind.FEEDBACK,
+ *   source: SignalSource.HUMAN,
  *   sessionId: 'session-123',
- *   vote: SignalVote.UPVOTE,
  * });
  * ```
  */
 export const SignalSource = {
-  /** Signal was triggered implicitly (e.g., user copy, auto-detect). */
-  IMPLICIT: 'IMPLICIT',
-  /** Signal was triggered explicitly by user action (e.g., thumbs up/down). */
-  EXPLICIT: 'EXPLICIT',
+  /** Signal from a human user. */
+  HUMAN: 'human',
+  /** Signal from a labeling process. */
+  LABEL: 'label',
+  /** Synthetically generated signal. */
+  SYNTHETIC: 'synthetic',
 } as const;
 
 export type SignalSource = (typeof SignalSource)[keyof typeof SignalSource];
-
-/**
- * Vote type for signals.
- *
- * @example
- * ```typescript
- * import { SignalVote } from 'kelet';
- *
- * await signal({
- *   source: SignalSource.EXPLICIT,
- *   sessionId: 'session-123',
- *   vote: SignalVote.DOWNVOTE,
- *   explanation: 'Response was incorrect',
- * });
- * ```
- */
-export const SignalVote = {
-  /** Positive feedback (thumbs up). */
-  UPVOTE: 'UPVOTE',
-  /** Negative feedback (thumbs down). */
-  DOWNVOTE: 'DOWNVOTE',
-} as const;
-
-export type SignalVote = (typeof SignalVote)[keyof typeof SignalVote];

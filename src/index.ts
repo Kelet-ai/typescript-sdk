@@ -6,7 +6,7 @@
  *
  * @example
  * ```typescript
- * import { configure, agenticSession, signal, SignalSource, SignalVote } from 'kelet';
+ * import { configure, agenticSession, signal, SignalKind, SignalSource } from 'kelet';
  *
  * // 1. Configure (sets up exporter + span processor + provider)
  * configure({
@@ -17,7 +17,7 @@
  * // 2. Group work under a session
  * await agenticSession({ sessionId: 'session-123', userId: 'user-1' }, async () => {
  *   // signal() auto-resolves sessionId from context
- *   await signal({ source: SignalSource.EXPLICIT, vote: SignalVote.UPVOTE });
+ *   await signal({ kind: SignalKind.FEEDBACK, source: SignalSource.HUMAN, score: 1.0 });
  * });
  * ```
  *
@@ -28,7 +28,7 @@ export { KeletExporter, type KeletExporterOptions } from './exporter';
 export { signal, SignalError, type SignalOptions } from './signal';
 export { type KeletConfig, type KeletConfigOptions } from './config';
 export { configure, type ConfigureOptions } from './setup';
-export { SignalSource, SignalVote } from './types';
+export { SignalKind, SignalSource } from './types';
 export {
   agenticSession,
   getSessionId,

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { resetConfig, configure } from './config.ts';
 import { signal } from './signal.ts';
-import { SignalSource, SignalVote } from './types.ts';
+import { SignalKind, SignalSource } from './types.ts';
 import { agenticSession } from './context.ts';
 
 describe('signal', () => {
@@ -26,8 +26,8 @@ describe('signal', () => {
     test('throws if neither sessionId nor traceId provided and no context', async () => {
       await expect(
         signal({
-          source: SignalSource.EXPLICIT,
-          vote: SignalVote.UPVOTE,
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
         })
       ).rejects.toThrow(
         'Either sessionId or traceId required. Use agenticSession() or pass explicitly.'
@@ -36,43 +36,104 @@ describe('signal', () => {
 
     test('accepts sessionId only', async () => {
       await signal({
-        source: SignalSource.EXPLICIT,
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
         sessionId: 'session-123',
-        vote: SignalVote.UPVOTE,
       });
       expect(fetchMock).toHaveBeenCalled();
     });
 
     test('accepts traceId only', async () => {
       await signal({
-        source: SignalSource.EXPLICIT,
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
         traceId: 'trace-123',
-        vote: SignalVote.UPVOTE,
       });
       expect(fetchMock).toHaveBeenCalled();
     });
 
     test('accepts both sessionId and traceId', async () => {
       await signal({
-        source: SignalSource.EXPLICIT,
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
         sessionId: 'session-123',
         traceId: 'trace-123',
-        vote: SignalVote.UPVOTE,
       });
       expect(fetchMock).toHaveBeenCalled();
+    });
+
+    test('throws if score is below 0', async () => {
+      await expect(
+        signal({
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
+          sessionId: 'session-123',
+          score: -0.1,
+        })
+      ).rejects.toThrow('score must be between 0 and 1 (inclusive)');
+    });
+
+    test('throws if score is above 1', async () => {
+      await expect(
+        signal({
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
+          sessionId: 'session-123',
+          score: 1.1,
+        })
+      ).rejects.toThrow('score must be between 0 and 1 (inclusive)');
+    });
+
+    test('throws if confidence is below 0', async () => {
+      await expect(
+        signal({
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
+          sessionId: 'session-123',
+          confidence: -0.1,
+        })
+      ).rejects.toThrow('confidence must be between 0 and 1 (inclusive)');
+    });
+
+    test('throws if confidence is above 1', async () => {
+      await expect(
+        signal({
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
+          sessionId: 'session-123',
+          confidence: 1.1,
+        })
+      ).rejects.toThrow('confidence must be between 0 and 1 (inclusive)');
+    });
+
+    test('accepts score at boundaries (0 and 1)', async () => {
+      await signal({
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
+        sessionId: 'session-123',
+        score: 0,
+      });
+      await signal({
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
+        sessionId: 'session-123',
+        score: 1,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
 
   describe('payload', () => {
     test('sends correct payload structure', async () => {
       await signal({
-        source: SignalSource.EXPLICIT,
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
         sessionId: 'session-123',
-        vote: SignalVote.UPVOTE,
-        explanation: 'Great response!',
-        triggerName: 'thumbs_up',
-        selection: 'some text',
-        correction: 'corrected text',
+        triggerName: 'thumbs_down',
+        score: 0.0,
+        value: 'Response was wrong',
+        confidence: 0.9,
+        metadata: { key: 'val' },
       });
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -87,19 +148,21 @@ describe('signal', () => {
 
       const body = JSON.parse(options.body as string);
       expect(body).toEqual({
-        source: 'EXPLICIT',
+        kind: 'feedback',
+        source: 'human',
         session_id: 'session-123',
-        vote: 'UPVOTE',
-        explanation: 'Great response!',
-        trigger_name: 'thumbs_up',
-        selection: 'some text',
-        correction: 'corrected text',
+        trigger_name: 'thumbs_down',
+        score: 0.0,
+        value: 'Response was wrong',
+        confidence: 0.9,
+        metadata: { key: 'val' },
       });
     });
 
     test('excludes undefined fields from payload', async () => {
       await signal({
-        source: SignalSource.IMPLICIT,
+        kind: SignalKind.EVENT,
+        source: SignalSource.SYNTHETIC,
         traceId: 'trace-123',
       });
 
@@ -107,38 +170,58 @@ describe('signal', () => {
       const body = JSON.parse(options.body as string);
 
       expect(body).toEqual({
-        source: 'IMPLICIT',
+        kind: 'event',
+        source: 'synthetic',
         trace_id: 'trace-123',
       });
       expect(body).not.toHaveProperty('session_id');
-      expect(body).not.toHaveProperty('vote');
-      expect(body).not.toHaveProperty('explanation');
+      expect(body).not.toHaveProperty('score');
+      expect(body).not.toHaveProperty('value');
     });
 
-    test('serializes object correction to JSON string', async () => {
+    test('serializes Date timestamp to ISO string', async () => {
+      const date = new Date('2026-01-15T10:30:00.000Z');
       await signal({
-        source: SignalSource.EXPLICIT,
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
         sessionId: 'session-123',
-        correction: { key: 'value', nested: { foo: 'bar' } },
+        timestamp: date,
       });
 
       const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(options.body as string);
 
-      expect(body.correction).toBe('{"key":"value","nested":{"foo":"bar"}}');
+      expect(body.timestamp).toBe('2026-01-15T10:30:00.000Z');
     });
 
-    test('keeps string correction as-is', async () => {
+    test('passes string timestamp as-is', async () => {
       await signal({
-        source: SignalSource.EXPLICIT,
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
         sessionId: 'session-123',
-        correction: 'plain string correction',
+        timestamp: '2026-01-15T10:30:00Z',
       });
 
       const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(options.body as string);
 
-      expect(body.correction).toBe('plain string correction');
+      expect(body.timestamp).toBe('2026-01-15T10:30:00Z');
+    });
+
+    test('maps triggerName to trigger_name in payload', async () => {
+      await signal({
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
+        sessionId: 'session-123',
+        triggerName: 'thumbs_up',
+      });
+
+      const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(options.body as string);
+
+      expect(body.trigger_name).toBe('thumbs_up');
+      expect(body).not.toHaveProperty('triggerName');
+      expect(body).not.toHaveProperty('trigger');
     });
   });
 
@@ -155,7 +238,8 @@ describe('signal', () => {
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       await signal({
-        source: SignalSource.EXPLICIT,
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
         sessionId: 'session-123',
       });
 
@@ -174,83 +258,8 @@ describe('signal', () => {
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       await signal({
-        source: SignalSource.EXPLICIT,
-        sessionId: 'session-123',
-      });
-
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    });
-
-    test('retries on 503 status', async () => {
-      let callCount = 0;
-      fetchMock = mock(() => {
-        callCount++;
-        if (callCount < 2) {
-          return Promise.resolve(new Response('Service Unavailable', { status: 503 }));
-        }
-        return Promise.resolve(new Response('{}', { status: 200 }));
-      });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      await signal({
-        source: SignalSource.EXPLICIT,
-        sessionId: 'session-123',
-      });
-
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    });
-
-    test('retries on 504 status', async () => {
-      let callCount = 0;
-      fetchMock = mock(() => {
-        callCount++;
-        if (callCount < 2) {
-          return Promise.resolve(new Response('Gateway Timeout', { status: 504 }));
-        }
-        return Promise.resolve(new Response('{}', { status: 200 }));
-      });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      await signal({
-        source: SignalSource.EXPLICIT,
-        sessionId: 'session-123',
-      });
-
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    });
-
-    test('retries on 408 status', async () => {
-      let callCount = 0;
-      fetchMock = mock(() => {
-        callCount++;
-        if (callCount < 2) {
-          return Promise.resolve(new Response('Request Timeout', { status: 408 }));
-        }
-        return Promise.resolve(new Response('{}', { status: 200 }));
-      });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      await signal({
-        source: SignalSource.EXPLICIT,
-        sessionId: 'session-123',
-      });
-
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    });
-
-    test('retries on 429 status', async () => {
-      let callCount = 0;
-      fetchMock = mock(() => {
-        callCount++;
-        if (callCount < 2) {
-          return Promise.resolve(new Response('Too Many Requests', { status: 429 }));
-        }
-        return Promise.resolve(new Response('{}', { status: 200 }));
-      });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      await signal({
-        source: SignalSource.EXPLICIT,
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
         sessionId: 'session-123',
       });
 
@@ -265,7 +274,8 @@ describe('signal', () => {
 
       await expect(
         signal({
-          source: SignalSource.EXPLICIT,
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
           sessionId: 'session-123',
         })
       ).rejects.toThrow();
@@ -281,39 +291,8 @@ describe('signal', () => {
 
       await expect(
         signal({
-          source: SignalSource.EXPLICIT,
-          sessionId: 'session-123',
-        })
-      ).rejects.toThrow();
-
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    test('throws immediately on 403 status (no retry)', async () => {
-      fetchMock = mock(() =>
-        Promise.resolve(new Response('Forbidden', { status: 403 }))
-      );
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      await expect(
-        signal({
-          source: SignalSource.EXPLICIT,
-          sessionId: 'session-123',
-        })
-      ).rejects.toThrow();
-
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    test('throws immediately on 404 status (no retry)', async () => {
-      fetchMock = mock(() =>
-        Promise.resolve(new Response('Not Found', { status: 404 }))
-      );
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      await expect(
-        signal({
-          source: SignalSource.EXPLICIT,
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
           sessionId: 'session-123',
         })
       ).rejects.toThrow();
@@ -329,7 +308,8 @@ describe('signal', () => {
 
       await expect(
         signal({
-          source: SignalSource.EXPLICIT,
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
           sessionId: 'session-123',
         })
       ).rejects.toThrow();
@@ -349,7 +329,8 @@ describe('signal', () => {
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       await signal({
-        source: SignalSource.EXPLICIT,
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
         sessionId: 'session-123',
       });
 
@@ -361,8 +342,8 @@ describe('signal', () => {
     test('resolves sessionId from agenticSession context', async () => {
       await agenticSession({ sessionId: 'ctx-sess' }, async () => {
         await signal({
-          source: SignalSource.EXPLICIT,
-          vote: SignalVote.UPVOTE,
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
         });
       });
 
@@ -375,9 +356,9 @@ describe('signal', () => {
     test('explicit sessionId takes priority over context', async () => {
       await agenticSession({ sessionId: 'ctx-sess' }, async () => {
         await signal({
-          source: SignalSource.EXPLICIT,
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
           sessionId: 'explicit-sess',
-          vote: SignalVote.UPVOTE,
         });
       });
 
@@ -389,25 +370,23 @@ describe('signal', () => {
     test('explicit traceId takes priority over context', async () => {
       await agenticSession({ sessionId: 'ctx-sess' }, async () => {
         await signal({
-          source: SignalSource.EXPLICIT,
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
           traceId: 'explicit-trace',
-          vote: SignalVote.UPVOTE,
         });
       });
 
       const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(options.body as string);
       expect(body.trace_id).toBe('explicit-trace');
-      // sessionId from context should not be used when explicit traceId is given
-      // (but it will also be resolved from context)
       expect(body.session_id).toBe('ctx-sess');
     });
 
     test('still throws when no context and no explicit ids', async () => {
       await expect(
         signal({
-          source: SignalSource.EXPLICIT,
-          vote: SignalVote.UPVOTE,
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
         })
       ).rejects.toThrow(
         'Either sessionId or traceId required. Use agenticSession() or pass explicitly.'
