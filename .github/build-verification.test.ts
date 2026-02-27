@@ -19,7 +19,7 @@ describe('Build verification', () => {
       'KeletConfig',
       'KeletConfigOptions',
       'SignalSource',
-      'SignalVote',
+      'SignalKind',
       'agenticSession',
       'getSessionId',
       'getUserId',
