@@ -5,7 +5,7 @@
 
 import type { Context } from '@opentelemetry/api';
 import type { SpanProcessor, ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
-import { _sessionStorage, SESSION_ID_ATTR, USER_ID_ATTR } from './context';
+import { _sessionStorage, _agentStorage, SESSION_ID_ATTR, USER_ID_ATTR, AGENT_NAME_ATTR } from './context';
 
 /** Options for KeletSpanProcessor. */
 export interface KeletSpanProcessorOptions {
@@ -52,6 +52,12 @@ export class KeletSpanProcessor implements SpanProcessor {
       if (store.userId !== undefined) {
         span.setAttribute(USER_ID_ATTR, store.userId);
       }
+    }
+
+    // Stamp agent name from agent storage
+    const agentStore = _agentStorage.getStore();
+    if (agentStore) {
+      span.setAttribute(AGENT_NAME_ATTR, agentStore.agentName);
     }
 
     this._wrapped.onStart(span, parentContext);

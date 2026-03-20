@@ -4,7 +4,7 @@ import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
-import { agenticSession, SESSION_ID_ATTR, USER_ID_ATTR } from './context.ts';
+import { agenticSession, withAgent, SESSION_ID_ATTR, USER_ID_ATTR } from './context.ts';
 import { KeletSpanProcessor } from './processor.ts';
 
 describe('KeletSpanProcessor', () => {
@@ -116,5 +116,43 @@ describe('KeletSpanProcessor', () => {
 
     expect(innerSpan.attributes[SESSION_ID_ATTR]).toBe('sess-leak');
     expect(outerSpan.attributes[SESSION_ID_ATTR]).toBeUndefined();
+  });
+
+  test('stamps gen_ai.agent.name inside withAgent', () => {
+    const tracer = provider.getTracer('test');
+    withAgent({ name: 'support-bot' }, () => {
+      const span = tracer.startSpan('op');
+      span.end();
+    });
+    const spans = exporter.getFinishedSpans();
+    // withAgent creates its own span + the 'op' span
+    const opSpan = spans.find((s) => s.name === 'op')!;
+    expect(opSpan.attributes['gen_ai.agent.name']).toBe('support-bot');
+  });
+
+  test('does not stamp gen_ai.agent.name when outside withAgent', () => {
+    const tracer = provider.getTracer('test');
+    agenticSession({ sessionId: 'sess-2' }, () => {
+      const span = tracer.startSpan('op');
+      span.end();
+    });
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0]!.attributes['gen_ai.agent.name']).toBeUndefined();
+  });
+
+  test('no gen_ai.agent.name leak after withAgent exits', () => {
+    const tracer = provider.getTracer('test');
+    withAgent({ name: 'temp-agent' }, () => {
+      const inner = tracer.startSpan('inner');
+      inner.end();
+    });
+    const outer = tracer.startSpan('outer');
+    outer.end();
+    const spans = exporter.getFinishedSpans();
+    const innerSpan = spans.find((s) => s.name === 'inner')!;
+    const outerSpan = spans.find((s) => s.name === 'outer')!;
+    expect(innerSpan.attributes['gen_ai.agent.name']).toBe('temp-agent');
+    expect(outerSpan.attributes['gen_ai.agent.name']).toBeUndefined();
   });
 });

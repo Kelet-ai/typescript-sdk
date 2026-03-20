@@ -6,6 +6,7 @@ import {
   getTraceId,
   SESSION_ID_ATTR,
   USER_ID_ATTR,
+  AGENT_NAME_ATTR,
 } from './context.ts';
 
 describe('context constants', () => {
@@ -15,6 +16,10 @@ describe('context constants', () => {
 
   test('USER_ID_ATTR is user.id', () => {
     expect(USER_ID_ATTR).toBe('user.id');
+  });
+
+  test('AGENT_NAME_ATTR is gen_ai.agent.name', () => {
+    expect(AGENT_NAME_ATTR).toBe('gen_ai.agent.name');
   });
 });
 
@@ -26,6 +31,7 @@ describe('getSessionId / getUserId outside session', () => {
   test('getUserId returns undefined outside agenticSession', () => {
     expect(getUserId()).toBeUndefined();
   });
+
 });
 
 describe('getTraceId', () => {

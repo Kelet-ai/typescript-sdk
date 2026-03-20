@@ -31,11 +31,15 @@ export { configure, type ConfigureOptions } from './setup';
 export { SignalKind, SignalSource } from './types';
 export {
   agenticSession,
+  withAgent,
   getSessionId,
   getUserId,
+  getAgentName,
   getTraceId,
   SESSION_ID_ATTR,
   USER_ID_ATTR,
+  AGENT_NAME_ATTR,
   type AgenticSessionOptions,
+  type WithAgentOptions,
 } from './context';
 export { KeletSpanProcessor, type KeletSpanProcessorOptions } from './processor';
