@@ -86,6 +86,16 @@ configure({
 
 Works with any OpenTelemetry-instrumented framework or library.
 
+`configure()` also auto-instruments supported AI libraries when they are installed — no extra code needed:
+
+| Library | Install extra |
+|---------|---------------|
+| **Anthropic SDK** | `npm install @arizeai/openinference-instrumentation-anthropic` |
+| **OpenAI SDK** | `npm install @arizeai/openinference-instrumentation-openai` |
+| **LangChain / LangGraph** | `npm install @arizeai/openinference-instrumentation-langchain` |
+
+If a library isn't installed, Kelet silently skips it.
+
 If you already have a TracerProvider, pass it in:
 
 ```typescript
