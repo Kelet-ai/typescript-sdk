@@ -211,6 +211,33 @@ await agenticSession({ sessionId: 'sess-123', userId: 'user-1' }, async () => {
 
 `configure()` automatically wires a `KeletSpanProcessor` that stamps `kelet.project`, `gen_ai.conversation.id`, and `user.id` on every span. Inside `agenticSession`, `signal()` automatically picks up the `sessionId` — no need to pass it explicitly.
 
+### Agent Spans
+
+Use `withAgent` to create an explicit OTEL span wrapping a named agent invocation. All LLM calls inside become children of that span, making your trace tree readable:
+
+```typescript
+import { agenticSession, withAgent } from 'kelet';
+
+await agenticSession({ sessionId: 'sess-123', userId: 'user-1' }, async () => {
+  await withAgent({ name: 'support-bot' }, async () => {
+    await anthropic.messages.create({ ... });
+  });
+});
+```
+
+Multiple agents in one session get separate labeled spans — no cross-contamination:
+
+```typescript
+await agenticSession({ sessionId: 'sess-123' }, async () => {
+  await withAgent({ name: 'classifier' }, async () => {
+    label = await openai.chat.completions.create({ ... });
+  });
+  await withAgent({ name: 'responder' }, async () => {
+    reply = await anthropic.messages.create({ ... });
+  });
+});
+```
+
 ### Easy Feedback UI for React
 
 Building a React frontend? Use the [Kelet Feedback UI](https://github.com/kelet-ai/feedback-ui) component for instant implicit and explicit feedback collection.
@@ -385,6 +412,21 @@ await agenticSession({
 });
 ```
 
+### withAgent()
+
+Create an explicit OTEL span wrapping a named agent invocation. All LLM calls inside become children of that span.
+
+```typescript
+import { withAgent } from 'kelet';
+
+await withAgent({
+  name: string,   // Required: agent name (stamped as gen_ai.agent.name)
+}, async () => {
+  // Span created with gen_ai.operation.name=invoke_agent
+  // Inherits sessionId/userId from surrounding agenticSession
+});
+```
+
 ### KeletSpanProcessor
 
 SpanProcessor that stamps `kelet.project`, session, and user attributes on every span. Used automatically by `configure()` — only needed for manual OTEL setups.
@@ -402,11 +444,12 @@ const processor = new KeletSpanProcessor(
 ### Context Helpers
 
 ```typescript
-import { getSessionId, getUserId, getTraceId } from 'kelet';
+import { getSessionId, getUserId, getAgentName, getTraceId } from 'kelet';
 
-getSessionId()  // Current session ID from agenticSession, or undefined
-getUserId()     // Current user ID from agenticSession, or undefined
-getTraceId()    // Current trace ID from active OpenTelemetry span, or undefined
+getSessionId()   // Current session ID from agenticSession, or undefined
+getUserId()      // Current user ID from agenticSession, or undefined
+getAgentName()   // Current agent name from withAgent, or undefined
+getTraceId()     // Current trace ID from active OpenTelemetry span, or undefined
 ```
 
 ### configure()
