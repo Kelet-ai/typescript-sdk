@@ -4,8 +4,9 @@
  */
 
 import type { Context } from '@opentelemetry/api';
+import { propagation } from '@opentelemetry/api';
 import type { SpanProcessor, ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
-import { _sessionStorage, _agentStorage, SESSION_ID_ATTR, USER_ID_ATTR, AGENT_NAME_ATTR } from './context';
+import { _sessionStorage, _agentStorage, SESSION_ID_ATTR, USER_ID_ATTR, AGENT_NAME_ATTR, getSessionId, getUserId, getProjectOverride } from './context';
 
 /** Options for KeletSpanProcessor. */
 export interface KeletSpanProcessorOptions {
@@ -42,16 +43,32 @@ export class KeletSpanProcessor implements SpanProcessor {
   ) {}
 
   onStart(span: Span, parentContext: Context): void {
-    // Always stamp project
-    span.setAttribute('kelet.project', this._options.project);
+    const bag = propagation.getBaggage(parentContext);
 
-    // Stamp session context if inside agenticSession
-    const store = _sessionStorage.getStore();
-    if (store) {
-      span.setAttribute(SESSION_ID_ATTR, store.sessionId);
-      if (store.userId !== undefined) {
-        span.setAttribute(USER_ID_ATTR, store.userId);
-      }
+    // Use `|| undefined` to treat empty-string baggage values as absent
+    const baggageProject = bag?.getEntry('kelet.project')?.value || undefined;
+    const baggageSessionId = bag?.getEntry('kelet.session_id')?.value || undefined;
+    const baggageUserId = bag?.getEntry('kelet.user_id')?.value || undefined;
+
+    // When inside a local agenticSession (ALS has a store), ContextVars are authoritative.
+    // Baggage fallback is reserved for spans outside any local session (cross-process use case).
+    // This prevents an inner session without userId/project from inheriting outer values via baggage.
+    const inLocalSession = getSessionId() !== undefined;
+
+    // Project: session override > baggage (cross-process only) > global config
+    const project = getProjectOverride() ?? (!inLocalSession ? baggageProject : undefined) ?? this._options.project;
+    span.setAttribute('kelet.project', project);
+
+    // Session ID: ALS > baggage (cross-process only)
+    const sessionId = getSessionId() ?? baggageSessionId;
+    // User ID: ALS > baggage (cross-process only)
+    const userId = getUserId() ?? (!inLocalSession ? baggageUserId : undefined);
+
+    if (sessionId !== undefined) {
+      span.setAttribute(SESSION_ID_ATTR, sessionId);
+    }
+    if (userId !== undefined) {
+      span.setAttribute(USER_ID_ATTR, userId);
     }
 
     // Stamp agent name from agent storage

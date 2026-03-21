@@ -4,6 +4,7 @@ import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
+import { context as otelContext, propagation } from '@opentelemetry/api';
 import { agenticSession, withAgent, SESSION_ID_ATTR, USER_ID_ATTR } from './context.ts';
 import { KeletSpanProcessor } from './processor.ts';
 
@@ -155,4 +156,79 @@ describe('KeletSpanProcessor', () => {
     expect(innerSpan.attributes['gen_ai.agent.name']).toBe('temp-agent');
     expect(outerSpan.attributes['gen_ai.agent.name']).toBeUndefined();
   });
+
+  test('project override in agenticSession overrides global project', () => {
+    const tracer = provider.getTracer('test');
+
+    agenticSession({ sessionId: 'sess-proj', project: 'override-proj' }, () => {
+      const span = tracer.startSpan('op');
+      span.end();
+    });
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0]!.attributes['kelet.project']).toBe('override-proj');
+  });
+
+  test('agenticSession without project uses global project', () => {
+    const tracer = provider.getTracer('test');
+
+    agenticSession({ sessionId: 'sess-no-proj' }, () => {
+      const span = tracer.startSpan('op');
+      span.end();
+    });
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0]!.attributes['kelet.project']).toBe('test-proj');
+  });
+
+  test('baggage context propagates session/user/project without agenticSession', () => {
+    const tracer = provider.getTracer('test');
+
+    // Simulate a cross-process scenario: build a context carrying W3C baggage
+    // and pass it directly to startSpan (as a downstream service would receive it).
+    const bag = propagation.createBaggage({
+      'kelet.session_id': { value: 'baggage-sess' },
+      'kelet.user_id': { value: 'baggage-user' },
+      'kelet.project': { value: 'baggage-proj' },
+    });
+    const ctx = propagation.setBaggage(otelContext.active(), bag);
+
+    // Pass the baggage context explicitly — simulates what happens when OTel
+    // propagates the context from an upstream service into this span's parent.
+    const span = tracer.startSpan('op', {}, ctx);
+    span.end();
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0]!.attributes[SESSION_ID_ATTR]).toBe('baggage-sess');
+    expect(spans[0]!.attributes[USER_ID_ATTR]).toBe('baggage-user');
+    expect(spans[0]!.attributes['kelet.project']).toBe('baggage-proj');
+  });
+
+  test('nested agenticSession with different projects: inner overrides, outer restores', () => {
+    const tracer = provider.getTracer('test');
+
+    agenticSession({ sessionId: 'outer', project: 'outer-proj' }, () => {
+      const outerSpan = tracer.startSpan('outer-op');
+      outerSpan.end();
+
+      agenticSession({ sessionId: 'inner', project: 'inner-proj' }, () => {
+        const innerSpan = tracer.startSpan('inner-op');
+        innerSpan.end();
+      });
+
+      const afterInnerSpan = tracer.startSpan('after-inner-op');
+      afterInnerSpan.end();
+    });
+
+    const spans = Object.fromEntries(
+      exporter.getFinishedSpans().map(s => [s.name, s])
+    );
+    expect(spans['outer-op']!.attributes['kelet.project']).toBe('outer-proj');
+    expect(spans['inner-op']!.attributes['kelet.project']).toBe('inner-proj');
+    expect(spans['after-inner-op']!.attributes['kelet.project']).toBe('outer-proj');
+  });
+
 });

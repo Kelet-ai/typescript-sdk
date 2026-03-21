@@ -221,6 +221,35 @@ await agenticSession({ sessionId: 'sess-123', userId: 'user-1' }, async () => {
 
 `configure()` automatically wires a `KeletSpanProcessor` that stamps `kelet.project`, `gen_ai.conversation.id`, and `user.id` on every span. Inside `agenticSession`, `signal()` automatically picks up the `sessionId` — no need to pass it explicitly.
 
+### Using different projects under the same application
+
+If your application hosts multiple independent root agent systems — for example `customer_support_prod` and `billing_prod` — each belonging to a different Kelet project, you can override the global project on a per-session basis using the `project` parameter on `agenticSession`.
+
+```typescript
+import { configure, agenticSession } from 'kelet';
+
+configure({
+  apiKey: process.env.KELET_API_KEY,
+  project: 'default-project',  // fallback for spans outside any session
+});
+
+// Spans inside this session are tagged with kelet.project = 'customer_support_prod'
+await agenticSession({ sessionId: 'sess-cs-123', userId: 'user-1', project: 'customer_support_prod' }, async () => {
+  // All spans created here, and in any downstream services that receive the
+  // propagated baggage, will have kelet.project = 'customer_support_prod'
+  await runCustomerSupportAgent();
+});
+
+// Spans inside this session are tagged with kelet.project = 'billing_prod'
+await agenticSession({ sessionId: 'sess-bill-456', userId: 'user-2', project: 'billing_prod' }, async () => {
+  await runBillingAgent();
+});
+```
+
+The `project` override in `agenticSession` takes precedence over the globally configured project for all spans within that session.
+
+Baggage automatically propagates `sessionId`, `userId`, and `project` to downstream services via the W3C Baggage header. Any service running `KeletSpanProcessor` will stamp the correct attributes on its spans without needing to call `agenticSession` itself — the processor reads from baggage when no local session context is present.
+
 ### Agent Spans
 
 Use `withAgent` to create an explicit OTEL span wrapping a named agent invocation. All LLM calls inside become children of that span, making your trace tree readable:
@@ -417,6 +446,7 @@ import { agenticSession } from 'kelet';
 await agenticSession({
   sessionId: string,   // Required: session identifier
   userId?: string,     // Optional: user identifier
+  project?: string,    // Optional: override global project for this session
 }, async () => {
   // All spans and signals inside inherit session context
 });
@@ -454,12 +484,13 @@ const processor = new KeletSpanProcessor(
 ### Context Helpers
 
 ```typescript
-import { getSessionId, getUserId, getAgentName, getTraceId } from 'kelet';
+import { getSessionId, getUserId, getProjectOverride, getAgentName, getTraceId } from 'kelet';
 
-getSessionId()   // Current session ID from agenticSession, or undefined
-getUserId()      // Current user ID from agenticSession, or undefined
-getAgentName()   // Current agent name from withAgent, or undefined
-getTraceId()     // Current trace ID from active OpenTelemetry span, or undefined
+getSessionId()        // Current session ID from agenticSession, or undefined
+getUserId()           // Current user ID from agenticSession, or undefined
+getProjectOverride()  // Current project override from agenticSession, or undefined
+getAgentName()        // Current agent name from withAgent, or undefined
+getTraceId()          // Current trace ID from active OpenTelemetry span, or undefined
 ```
 
 ### configure()
