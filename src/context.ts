@@ -74,8 +74,19 @@ export function agenticSession<T>(options: AgenticSessionOptions, fn: () => T): 
     }
   }
   allEntries['kelet.session_id'] = { value: options.sessionId };
-  if (options.userId) allEntries['kelet.user_id'] = { value: options.userId };
-  if (options.project) allEntries['kelet.project'] = { value: options.project };
+  // Explicitly set or delete user_id/project so that an inner session which
+  // omits these does not propagate the outer session's values via baggage
+  // headers to downstream services (cross-process isolation).
+  if (options.userId) {
+    allEntries['kelet.user_id'] = { value: options.userId };
+  } else {
+    delete allEntries['kelet.user_id'];
+  }
+  if (options.project) {
+    allEntries['kelet.project'] = { value: options.project };
+  } else {
+    delete allEntries['kelet.project'];
+  }
   const bag = propagation.createBaggage(allEntries);
   const ctx = propagation.setBaggage(otelContext.active(), bag);
   return _sessionStorage.run(
