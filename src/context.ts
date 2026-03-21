@@ -77,12 +77,12 @@ export function agenticSession<T>(options: AgenticSessionOptions, fn: () => T): 
   // Explicitly set or delete user_id/project so that an inner session which
   // omits these does not propagate the outer session's values via baggage
   // headers to downstream services (cross-process isolation).
-  if (options.userId) {
+  if (options.userId !== undefined) {
     allEntries['kelet.user_id'] = { value: options.userId };
   } else {
     delete allEntries['kelet.user_id'];
   }
-  if (options.project) {
+  if (options.project !== undefined) {
     allEntries['kelet.project'] = { value: options.project };
   } else {
     delete allEntries['kelet.project'];
