@@ -60,7 +60,7 @@ export class KeletSpanProcessor implements SpanProcessor {
     span.setAttribute('kelet.project', project);
 
     // Session ID: ALS > baggage (cross-process only)
-    const sessionId = getSessionId() ?? baggageSessionId;
+    const sessionId = getSessionId() ?? (!inLocalSession ? baggageSessionId : undefined);
     // User ID: ALS > baggage (cross-process only)
     const userId = getUserId() ?? (!inLocalSession ? baggageUserId : undefined);
 
