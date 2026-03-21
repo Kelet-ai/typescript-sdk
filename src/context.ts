@@ -7,7 +7,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Attributes } from '@opentelemetry/api';
-import { context, trace } from '@opentelemetry/api';
+import { context as otelContext, propagation, trace } from '@opentelemetry/api';
 
 /** OpenTelemetry attribute key for session/conversation ID. */
 export const SESSION_ID_ATTR = 'gen_ai.conversation.id';
@@ -24,11 +24,14 @@ export interface AgenticSessionOptions {
   sessionId: string;
   /** Optional user identifier. */
   userId?: string;
+  /** Optional project override — overrides the global project for this session's spans. */
+  project?: string;
 }
 
 interface SessionStore {
   sessionId: string;
   userId?: string;
+  project?: string;
 }
 
 interface AgentStore {
@@ -50,23 +53,46 @@ export const _agentStorage = new AsyncLocalStorage<AgentStore>();
 /**
  * Run a callback within an agentic session context.
  *
- * @param options - Session options (sessionId required, userId optional)
+ * @param options - Session options (sessionId required, userId and project optional)
  * @param fn - Callback to run within the session context
  * @returns The return value of the callback
  *
  * @example
  * ```typescript
- * await agenticSession({ sessionId: 'sess-123', userId: 'user-1' }, async () => {
- *   await signal({ source: SignalSource.EXPLICIT, vote: SignalVote.UPVOTE });
+ * await agenticSession({ sessionId: 'sess-123', userId: 'user-1', project: 'my-project' }, async () => {
+ *   await signal({ kind: SignalKind.FEEDBACK, source: SignalSource.HUMAN, score: 1.0 });
  * });
  * ```
  */
 export function agenticSession<T>(options: AgenticSessionOptions, fn: () => T): T {
-  const store: SessionStore = {
-    sessionId: options.sessionId,
-    userId: options.userId,
-  };
-  return _sessionStorage.run(store, fn);
+  // Merge with existing baggage so nested sessions preserve outer keys they don't override
+  const activeBag = propagation.getBaggage(otelContext.active());
+  const allEntries: Record<string, { value: string }> = {};
+  if (activeBag) {
+    for (const [key, entry] of activeBag.getAllEntries()) {
+      allEntries[key] = { value: entry.value };
+    }
+  }
+  allEntries['kelet.session_id'] = { value: options.sessionId };
+  // Explicitly set or delete user_id/project so that an inner session which
+  // omits these does not propagate the outer session's values via baggage
+  // headers to downstream services (cross-process isolation).
+  if (options.userId !== undefined) {
+    allEntries['kelet.user_id'] = { value: options.userId };
+  } else {
+    delete allEntries['kelet.user_id'];
+  }
+  if (options.project !== undefined) {
+    allEntries['kelet.project'] = { value: options.project };
+  } else {
+    delete allEntries['kelet.project'];
+  }
+  const bag = propagation.createBaggage(allEntries);
+  const ctx = propagation.setBaggage(otelContext.active(), bag);
+  return _sessionStorage.run(
+    { sessionId: options.sessionId, userId: options.userId, project: options.project },
+    () => otelContext.with(ctx, fn)
+  );
 }
 
 /**
@@ -83,6 +109,14 @@ export function getSessionId(): string | undefined {
  */
 export function getUserId(): string | undefined {
   return _sessionStorage.getStore()?.userId;
+}
+
+/**
+ * Get the current project override from the agenticSession context.
+ * @returns Project override or undefined if not set or not inside an agenticSession.
+ */
+export function getProjectOverride(): string | undefined {
+  return _sessionStorage.getStore()?.project;
 }
 
 /**
@@ -142,8 +176,8 @@ export function withAgent<T>(options: WithAgentOptions, fn: () => T): T {
   if (store?.userId) attrs[USER_ID_ATTR] = store.userId;
 
   const span = tracer.startSpan(`agent ${options.name}`, { attributes: attrs });
-  return context.with(
-    trace.setSpan(context.active(), span),
+  return otelContext.with(
+    trace.setSpan(otelContext.active(), span),
     () => _agentStorage.run({ agentName: options.name }, () => {
       try {
         const result = fn();

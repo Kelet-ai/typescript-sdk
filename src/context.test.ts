@@ -3,6 +3,7 @@ import {
   agenticSession,
   getSessionId,
   getUserId,
+  getProjectOverride,
   getTraceId,
   SESSION_ID_ATTR,
   USER_ID_ATTR,
@@ -32,6 +33,9 @@ describe('getSessionId / getUserId outside session', () => {
     expect(getUserId()).toBeUndefined();
   });
 
+  test('getProjectOverride returns undefined outside agenticSession', () => {
+    expect(getProjectOverride()).toBeUndefined();
+  });
 });
 
 describe('getTraceId', () => {
@@ -128,4 +132,24 @@ describe('agenticSession', () => {
       expect(getUserId()).toBeUndefined();
     });
   });
+
+  test('sets project readable via getProjectOverride', () => {
+    agenticSession({ sessionId: 'sess-1', project: 'my-project' }, () => {
+      expect(getProjectOverride()).toBe('my-project');
+    });
+  });
+
+  test('project is optional (undefined when omitted)', () => {
+    agenticSession({ sessionId: 'sess-1' }, () => {
+      expect(getProjectOverride()).toBeUndefined();
+    });
+  });
+
+  test('no project leakage after session exits', () => {
+    agenticSession({ sessionId: 'sess-proj', project: 'leak-test' }, () => {
+      expect(getProjectOverride()).toBe('leak-test');
+    });
+    expect(getProjectOverride()).toBeUndefined();
+  });
 });
+

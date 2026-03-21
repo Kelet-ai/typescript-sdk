@@ -34,6 +34,7 @@ export {
   withAgent,
   getSessionId,
   getUserId,
+  getProjectOverride,
   getAgentName,
   getTraceId,
   SESSION_ID_ATTR,
