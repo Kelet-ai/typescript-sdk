@@ -52,6 +52,11 @@ export class KeletSpanProcessor implements SpanProcessor {
       if (store.userId !== undefined) {
         span.setAttribute(USER_ID_ATTR, store.userId);
       }
+      if (store.metadata) {
+        for (const [key, value] of Object.entries(store.metadata)) {
+          span.setAttribute(`metadata.${key}`, value);
+        }
+      }
     }
 
     this._wrapped.onStart(span, parentContext);

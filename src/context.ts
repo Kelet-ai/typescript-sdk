@@ -20,11 +20,14 @@ export interface AgenticSessionOptions {
   sessionId: string;
   /** Optional user identifier. */
   userId?: string;
+  /** Optional metadata stamped as metadata.{key} on all spans in this session. */
+  metadata?: Record<string, string | number | boolean>;
 }
 
 interface SessionStore {
   sessionId: string;
   userId?: string;
+  metadata?: Record<string, string | number | boolean>;
 }
 
 /**
@@ -54,9 +57,14 @@ export const _sessionStorage = new AsyncLocalStorage<SessionStore>();
  * ```
  */
 export function agenticSession<T>(options: AgenticSessionOptions, fn: () => T): T {
+  const outer = _sessionStorage.getStore();
   const store: SessionStore = {
     sessionId: options.sessionId,
-    userId: options.userId,
+    userId: options.userId ?? outer?.userId,
+    metadata:
+      outer?.metadata || options.metadata
+        ? { ...outer?.metadata, ...options.metadata }
+        : undefined,
   };
   return _sessionStorage.run(store, fn);
 }
@@ -75,6 +83,14 @@ export function getSessionId(): string | undefined {
  */
 export function getUserId(): string | undefined {
   return _sessionStorage.getStore()?.userId;
+}
+
+/**
+ * Get the current metadata from the agenticSession context.
+ * @returns Metadata record or undefined if not set or not inside an agenticSession.
+ */
+export function getMetadata(): Record<string, string | number | boolean> | undefined {
+  return _sessionStorage.getStore()?.metadata;
 }
 
 /**
