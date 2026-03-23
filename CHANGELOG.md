@@ -1,3 +1,18 @@
+# [0.4.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.3.1...v0.4.0) (2026-03-23)
+
+
+### Bug Fixes
+
+* **KEL-342:** propagate metadata kwargs to child spans via SpanProcessor ([245cd38](https://github.com/kelet-ai/typescript-sdk/commit/245cd38d61c8dd1bde9b672b46780d80ec1abf08))
+* upgrade deps ([d9e1341](https://github.com/kelet-ai/typescript-sdk/commit/d9e13417984b284b831dd5dd9e82cdd3d4e006cd))
+
+
+### Features
+
+* **KEL-329:** auto-instrumentation for Anthropic, OpenAI, LangChain/LangGraph [WIP] ([a644bfb](https://github.com/kelet-ai/typescript-sdk/commit/a644bfb9f09ae9882d1b2669e733d8b8265e1266))
+
+
+
 ## [0.3.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.3.0...v0.3.1) (2026-02-27)
 
 
