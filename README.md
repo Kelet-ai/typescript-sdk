@@ -423,6 +423,7 @@ configure({
   project?: string,             // defaults to "default"
   apiUrl?: string,              // defaults to "https://api.kelet.ai"
   tracerProvider?: BasicTracerProvider,  // Optional: use existing provider
+  spanProcessor?: SpanProcessor,         // Optional: use this instead of default KeletSpanProcessor
 });
 ```
 

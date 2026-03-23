@@ -142,5 +142,39 @@ describe('configure (setup)', () => {
       expect(config.apiKey).toBe('shared-key');
       expect(config.project).toBe('shared-proj');
     });
+
+    test('uses provided spanProcessor instead of creating default KeletSpanProcessor', () => {
+      const onEndCalls: unknown[] = [];
+      const mockProcessor = {
+        onStart: () => {},
+        onEnd: (span: unknown) => { onEndCalls.push(span); },
+        shutdown: async () => {},
+        forceFlush: async () => {},
+      };
+
+      const exporter = new InMemorySpanExporter();
+      const provider = new BasicTracerProvider();
+      // Add a capturing exporter so we can inspect span attributes
+      provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+
+      configure({
+        apiKey: 'test-key',
+        project: 'test-proj',
+        tracerProvider: provider,
+        spanProcessor: mockProcessor,
+      });
+
+      const tracer = provider.getTracer('test');
+      const span = tracer.startSpan('custom-proc-span');
+      span.end();
+
+      // The mock's onEnd was called (the custom processor was registered)
+      expect(onEndCalls).toHaveLength(1);
+
+      // KeletSpanProcessor.onStart stamps kelet.project; its absence proves it was NOT used
+      const spans = exporter.getFinishedSpans();
+      expect(spans).toHaveLength(1);
+      expect(spans[0]!.attributes['kelet.project']).toBeUndefined();
+    });
   });
 });

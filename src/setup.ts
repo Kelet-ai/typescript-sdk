@@ -16,6 +16,7 @@ import {
   SimpleSpanProcessor,
   BasicTracerProvider,
   type SpanExporter,
+  type SpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 
 /**
@@ -28,6 +29,13 @@ export interface ConfigureOptions extends KeletConfigOptions {
    * If omitted, a new BasicTracerProvider is created and registered globally.
    */
   tracerProvider?: BasicTracerProvider;
+  /**
+   * Use this SpanProcessor instead of creating the default Kelet one.
+   * Useful for wrapping or filtering the default processor (e.g., for
+   * self-referential monitoring scenarios where you want to gate exports
+   * on an active session context).
+   */
+  spanProcessor?: SpanProcessor;
 }
 
 let _configured = false;
@@ -74,7 +82,7 @@ let _provider: BasicTracerProvider | undefined;
  * ```
  */
 export function configure(options: ConfigureOptions = {}): void {
-  const { tracerProvider, ...configOptions } = options;
+  const { tracerProvider, spanProcessor, ...configOptions } = options;
 
   // Always store config (for signal(), resolveConfig(), etc.)
   setConfig(configOptions);
@@ -85,18 +93,24 @@ export function configure(options: ConfigureOptions = {}): void {
       const config = resolveConfig(configOptions);
       setSharedConfig(config);
 
-      const exporter = new OTLPTraceExporter({
-        url: `${config.apiUrl}/api/traces`,
-        headers: {
-          Authorization: config.apiKey,
-          'X-Kelet-Project': config.project,
-        },
-      });
+      let processor: SpanProcessor;
+      if (spanProcessor !== undefined) {
+        // Use provided processor — skips creating default exporter/KeletSpanProcessor
+        processor = spanProcessor;
+      } else {
+        const exporter = new OTLPTraceExporter({
+          url: `${config.apiUrl}/api/traces`,
+          headers: {
+            Authorization: config.apiKey,
+            'X-Kelet-Project': config.project,
+          },
+        });
 
-      // Cast needed due to duplicate @opentelemetry/sdk-trace-base versions in OTEL packages
-      const processor = new KeletSpanProcessor(new SimpleSpanProcessor(exporter as unknown as SpanExporter), {
-        project: config.project,
-      });
+        // Cast needed due to duplicate @opentelemetry/sdk-trace-base versions in OTEL packages
+        processor = new KeletSpanProcessor(new SimpleSpanProcessor(exporter as unknown as SpanExporter), {
+          project: config.project,
+        });
+      }
 
       if (tracerProvider) {
         tracerProvider.addSpanProcessor(processor);
