@@ -378,8 +378,9 @@ Group spans and signals under a session/user context.
 import { agenticSession } from 'kelet';
 
 await agenticSession({
-  sessionId: string,   // Required: session identifier
-  userId?: string,     // Optional: user identifier
+  sessionId: string,                                    // Required: session identifier
+  userId?: string,                                      // Optional: user identifier
+  metadata?: Record<string, string | number | boolean>, // Optional: stamped as metadata.{key} on all spans
 }, async () => {
   // All spans and signals inside inherit session context
 });
@@ -406,6 +407,7 @@ import { getSessionId, getUserId, getTraceId } from 'kelet';
 
 getSessionId()  // Current session ID from agenticSession, or undefined
 getUserId()     // Current user ID from agenticSession, or undefined
+getMetadata()   // Current metadata record from agenticSession, or undefined
 getTraceId()    // Current trace ID from active OpenTelemetry span, or undefined
 ```
 
