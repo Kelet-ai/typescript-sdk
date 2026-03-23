@@ -3,6 +3,7 @@ import {
   agenticSession,
   getSessionId,
   getUserId,
+  getMetadata,
   getTraceId,
   SESSION_ID_ATTR,
   USER_ID_ATTR,
@@ -120,6 +121,31 @@ describe('agenticSession', () => {
 
       expect(getSessionId()).toBe('outer-a');
       expect(getUserId()).toBeUndefined();
+    });
+  });
+
+  test('metadata stored in session store', () => {
+    agenticSession({ sessionId: 'sess-m', metadata: { env: 'test', version: 3 } }, () => {
+      expect(getMetadata()).toEqual({ env: 'test', version: 3 });
+    });
+  });
+
+  test('getMetadata accessor returns undefined outside session', () => {
+    expect(getMetadata()).toBeUndefined();
+  });
+
+  test('nested session merges metadata and inherits userId', () => {
+    agenticSession({ sessionId: 's1', userId: 'u1', metadata: { a: 1 } }, () => {
+      // Inner without userId or override of key 'a'
+      agenticSession({ sessionId: 's2', metadata: { b: 2 } }, () => {
+        expect(getUserId()).toBe('u1'); // inherited
+        expect(getMetadata()).toEqual({ a: 1, b: 2 }); // merged
+      });
+
+      // Inner overriding key 'a'
+      agenticSession({ sessionId: 's3', metadata: { a: 99 } }, () => {
+        expect(getMetadata()).toEqual({ a: 99 }); // inner precedence
+      });
     });
   });
 });

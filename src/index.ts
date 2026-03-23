@@ -33,6 +33,7 @@ export {
   agenticSession,
   getSessionId,
   getUserId,
+  getMetadata,
   getTraceId,
   SESSION_ID_ATTR,
   USER_ID_ATTR,

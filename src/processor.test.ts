@@ -117,4 +117,34 @@ describe('KeletSpanProcessor', () => {
     expect(innerSpan.attributes[SESSION_ID_ATTR]).toBe('sess-leak');
     expect(outerSpan.attributes[SESSION_ID_ATTR]).toBeUndefined();
   });
+
+  test('stamps metadata on child spans', () => {
+    const tracer = provider.getTracer('test');
+
+    agenticSession({ sessionId: 's1', metadata: { $kelet_internal: true } }, () => {
+      const span = tracer.startSpan('child');
+      span.end();
+    });
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0]!.attributes['metadata.$kelet_internal']).toBe(true);
+  });
+
+  test('nested session metadata propagation', () => {
+    const tracer = provider.getTracer('test');
+
+    agenticSession({ sessionId: 'outer', metadata: { env: 'prod', version: 1 } }, () => {
+      agenticSession({ sessionId: 'inner', metadata: { feature: 'beta' } }, () => {
+        const span = tracer.startSpan('inner-child');
+        span.end();
+      });
+    });
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0]!.attributes['metadata.env']).toBe('prod');
+    expect(spans[0]!.attributes['metadata.version']).toBe(1);
+    expect(spans[0]!.attributes['metadata.feature']).toBe('beta');
+  });
 });
