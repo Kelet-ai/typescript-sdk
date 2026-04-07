@@ -1,3 +1,16 @@
+## [0.5.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.5.0...v0.5.1) (2026-04-07)
+
+
+### Bug Fixes
+
+* add @types/bun to tsconfig types so bun:test resolves ([145089c](https://github.com/kelet-ai/typescript-sdk/commit/145089c49209078ea8e862ea9180165d6721b822))
+* add rootDir to tsconfig.build.json, revert unnecessary types override ([e070a1e](https://github.com/kelet-ai/typescript-sdk/commit/e070a1e4b847605ed0677982c4ec4f58e19f9c81))
+* exclude @types/bun from build tsconfig to fix rootDir error ([ab91456](https://github.com/kelet-ai/typescript-sdk/commit/ab9145688249fe0c88e5be559e78e75162da8ffb))
+* **KEL-374:** add project to KeletExporter tests missing project ([5f7aac3](https://github.com/kelet-ai/typescript-sdk/commit/5f7aac3cf973a04a11652ec2092d594a805450cc))
+* **KEL-374:** remove default project fallback, fail-fast on missing project ([936d899](https://github.com/kelet-ai/typescript-sdk/commit/936d8995c4a78b933df1f613109ef31b906fe7b6))
+
+
+
 # [0.5.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.4.0...v0.5.0) (2026-03-23)
 
 
@@ -37,15 +50,6 @@
 ### Features
 
 * enhance OpenTelemetry support with `agenticSession` and `KeletSpanProcessor` ([0da17d0](https://github.com/kelet-ai/typescript-sdk/commit/0da17d07c9feedfc7e5f590fd438a9592783acc9))
-
-
-
-## [0.2.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.2.0...v0.2.1) (2026-02-11)
-
-
-### Bug Fixes
-
-* kelet url resolution ([3d7e971](https://github.com/kelet-ai/typescript-sdk/commit/3d7e97120c5ecca5fcb63c48f8cf2f72a5c2b864))
 
 
 
