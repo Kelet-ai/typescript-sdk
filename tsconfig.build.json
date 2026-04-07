@@ -4,10 +4,10 @@
     "declaration": true,
     "emitDeclarationOnly": true,
     "declarationMap": true,
+    "rootDir": "./src",
     "outDir": "./dist",
     "noEmit": false,
-    "allowImportingTsExtensions": false,
-    "types": []
+    "allowImportingTsExtensions": false
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "node_modules"]
