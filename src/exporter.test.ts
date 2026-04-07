@@ -89,6 +89,7 @@ describe('KeletExporter', () => {
     test('configures correct URL', () => {
       const exporter = new KeletExporter({
         apiKey: 'test-key',
+        project: 'test-project',
         apiUrl: 'https://custom.api',
       });
 
@@ -98,6 +99,7 @@ describe('KeletExporter', () => {
     test('uses default URL', () => {
       const exporter = new KeletExporter({
         apiKey: 'test-key',
+        project: 'test-project',
       });
 
       expect(getExporterUrl(exporter)).toBe('https://api.kelet.ai/api/traces');

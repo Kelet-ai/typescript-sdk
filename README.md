@@ -55,7 +55,7 @@ Set your API key:
 
 ```bash
 export KELET_API_KEY=your_api_key
-export KELET_PROJECT=production  # Optional: organize traces by environment
+export KELET_PROJECT=production  # Required — create a project at console.kelet.ai
 ```
 
 Or configure in code:
@@ -313,7 +313,7 @@ Set via environment variables:
 
 ```bash
 export KELET_API_KEY=your_api_key    # Required
-export KELET_PROJECT=production      # Optional, defaults to "default"
+export KELET_PROJECT=production      # Required — create a project at console.kelet.ai
 export KELET_API_URL=https://...     # Optional, defaults to api.kelet.ai
 ```
 
@@ -341,7 +341,7 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 
 const exporter = new KeletExporter({
   apiKey?: string,     // KELET_API_KEY env var if not provided
-  project?: string,    // defaults to "default"
+  project?: string,    // KELET_PROJECT env var if not set here — required
   apiUrl?: string,     // defaults to "https://api.kelet.ai"
 });
 
@@ -420,7 +420,7 @@ import { configure } from 'kelet';
 
 configure({
   apiKey?: string,              // KELET_API_KEY env var if not provided
-  project?: string,             // defaults to "default"
+  project?: string,             // KELET_PROJECT env var if not set here — required
   apiUrl?: string,              // defaults to "https://api.kelet.ai"
   tracerProvider?: BasicTracerProvider,  // Optional: use existing provider
   spanProcessor?: SpanProcessor,         // Optional: use this instead of default KeletSpanProcessor

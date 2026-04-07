@@ -33,7 +33,7 @@ describe('config', () => {
 
     test('uses explicit parameter over everything', () => {
       process.env.KELET_API_KEY = 'env-key';
-      configure({ apiKey: 'global-key' });
+      configure({ apiKey: 'global-key', project: 'global-project' });
       setSharedConfig({ apiKey: 'shared-key', apiUrl: 'https://shared.api', project: 'shared' });
 
       const config = resolveConfig({ apiKey: 'explicit-key' });
@@ -42,7 +42,7 @@ describe('config', () => {
 
     test('uses shared config over global and env', () => {
       process.env.KELET_API_KEY = 'env-key';
-      configure({ apiKey: 'global-key' });
+      configure({ apiKey: 'global-key', project: 'global-project' });
       setSharedConfig({ apiKey: 'shared-key', apiUrl: 'https://shared.api', project: 'shared' });
 
       const config = resolveConfig();
@@ -51,7 +51,7 @@ describe('config', () => {
 
     test('uses global config over env', () => {
       process.env.KELET_API_KEY = 'env-key';
-      configure({ apiKey: 'global-key' });
+      configure({ apiKey: 'global-key', project: 'global-project' });
 
       const config = resolveConfig();
       expect(config.apiKey).toBe('global-key');
@@ -68,12 +68,11 @@ describe('config', () => {
       expect(config.apiUrl).toBe('https://env.api');
     });
 
-    test('uses defaults for project and apiUrl', () => {
+    test('throws when project is not configured', () => {
       process.env.KELET_API_KEY = 'env-key';
+      delete process.env.KELET_PROJECT;
 
-      const config = resolveConfig();
-      expect(config.project).toBe('default');
-      expect(config.apiUrl).toBe('https://api.kelet.ai');
+      expect(() => resolveConfig()).toThrow('KELET_PROJECT required');
     });
 
     test('resolves each field independently', () => {
@@ -96,11 +95,9 @@ describe('config', () => {
       expect(config.project).toBe('test-project');
     });
 
-    test('uses defaults for unspecified fields', () => {
-      configure({ apiKey: 'test-key' });
-      const config = resolveConfig();
-      expect(config.project).toBe('default');
-      expect(config.apiUrl).toBe('https://api.kelet.ai');
+    test('configure() throws when project is missing', () => {
+      delete process.env.KELET_PROJECT;
+      expect(() => configure({ apiKey: 'test-key' })).toThrow('KELET_PROJECT required');
     });
   });
 
@@ -122,7 +119,7 @@ describe('config', () => {
 
   describe('resetConfig', () => {
     test('clears all config state', () => {
-      configure({ apiKey: 'global-key' });
+      configure({ apiKey: 'global-key', project: 'global-project' });
       setSharedConfig({ apiKey: 'shared-key', apiUrl: 'https://shared.api', project: 'shared' });
 
       resetConfig();

@@ -43,6 +43,13 @@ let _sharedConfig: KeletConfig | undefined;
  * ```
  */
 export function configure(options: KeletConfigOptions): void {
+  const project = options.project ?? process.env.KELET_PROJECT;
+  if (!project) {
+    throw new Error(
+      'KELET_PROJECT required. Set the KELET_PROJECT env var or pass project: to configure().\n' +
+      'Create a project at https://console.kelet.ai'
+    );
+  }
   _globalConfig = options;
 }
 
@@ -79,7 +86,7 @@ export function resetConfig(): void {
  * 2. Shared config (from KeletExporter)
  * 3. Global config (from configure())
  * 4. Environment variables
- * 5. Default values
+ * 5. Throws if project cannot be resolved
  *
  * @param options - Optional explicit configuration overrides
  * @returns Fully resolved configuration
@@ -112,8 +119,14 @@ export function resolveConfig(options?: KeletConfigOptions): KeletConfig {
     options?.project ??
     _sharedConfig?.project ??
     _globalConfig?.project ??
-    process.env.KELET_PROJECT ??
-    'default';
+    process.env.KELET_PROJECT;
+
+  if (!project) {
+    throw new Error(
+      'KELET_PROJECT required. Set the KELET_PROJECT env var or pass project: to configure().\n' +
+      'Create a project at https://console.kelet.ai'
+    );
+  }
 
   let apiUrl =
     options?.apiUrl ??
