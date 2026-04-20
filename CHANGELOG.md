@@ -1,3 +1,14 @@
+## [0.5.2](https://github.com/kelet-ai/typescript-sdk/compare/v0.5.1...v0.5.2) (2026-04-20)
+
+
+### Bug Fixes
+
+* **setup:** drop SIGINT/SIGTERM handlers ([1bd4f65](https://github.com/kelet-ai/typescript-sdk/commit/1bd4f658ea6eeac7f557c0447c4ae6b636a5b9e9))
+* **signal:** log per-attempt retry warnings to match Python SDK ([107476a](https://github.com/kelet-ai/typescript-sdk/commit/107476a7f1f87258b7d402043a5c1ad6cf091cde))
+* **signal:** swallow transport failures by default; add shutdown() ([f168b06](https://github.com/kelet-ai/typescript-sdk/commit/f168b06f2fc8b0ea008b1d58eabb960a5160e1b0))
+
+
+
 ## [0.5.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.5.0...v0.5.1) (2026-04-07)
 
 
@@ -41,15 +52,6 @@
 ### Bug Fixes
 
 * update build verification test to expect `SignalKind` instead of `SignalVote` ([06361e8](https://github.com/kelet-ai/typescript-sdk/commit/06361e8b2a48841835a28062c06e33bff5403b69))
-
-
-
-# [0.3.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.2.1...v0.3.0) (2026-02-13)
-
-
-### Features
-
-* enhance OpenTelemetry support with `agenticSession` and `KeletSpanProcessor` ([0da17d0](https://github.com/kelet-ai/typescript-sdk/commit/0da17d07c9feedfc7e5f590fd438a9592783acc9))
 
 
 
