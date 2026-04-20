@@ -27,7 +27,7 @@
 export { KeletExporter, type KeletExporterOptions } from './exporter';
 export { signal, SignalError, type SignalOptions } from './signal';
 export { type KeletConfig, type KeletConfigOptions } from './config';
-export { configure, type ConfigureOptions } from './setup';
+export { configure, shutdown, type ConfigureOptions } from './setup';
 export { SignalKind, SignalSource } from './types';
 export {
   agenticSession,

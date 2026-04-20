@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { resetConfig, configure } from './config.ts';
 import { signal } from './signal.ts';
 import { SignalKind, SignalSource } from './types.ts';
@@ -6,6 +6,7 @@ import { agenticSession } from './context.ts';
 
 describe('signal', () => {
   let fetchMock: ReturnType<typeof mock>;
+  let warnSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     resetConfig();
@@ -16,10 +17,14 @@ describe('signal', () => {
       Promise.resolve(new Response(JSON.stringify({ success: true }), { status: 200 }))
     );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    // Silence and capture warn calls emitted by default-swallowed transport failures.
+    warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
     resetConfig();
+    warnSpy.mockRestore();
   });
 
   describe('validation', () => {
@@ -266,41 +271,89 @@ describe('signal', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
-    test('throws immediately on 400 status (no retry)', async () => {
+    test('resolves on 400 status by default (no retry)', async () => {
       fetchMock = mock(() =>
         Promise.resolve(new Response('Bad Request', { status: 400 }))
       );
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-      await expect(
-        signal({
-          kind: SignalKind.FEEDBACK,
-          source: SignalSource.HUMAN,
-          sessionId: 'session-123',
-        })
-      ).rejects.toThrow();
+      await signal({
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
+        sessionId: 'session-123',
+      });
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    test('throws immediately on 401 status (no retry)', async () => {
+    test('resolves on 401 status by default (no retry)', async () => {
       fetchMock = mock(() =>
         Promise.resolve(new Response('Unauthorized', { status: 401 }))
       );
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-      await expect(
-        signal({
-          kind: SignalKind.FEEDBACK,
-          source: SignalSource.HUMAN,
-          sessionId: 'session-123',
-        })
-      ).rejects.toThrow();
+      await signal({
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
+        sessionId: 'session-123',
+      });
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    test('throws after max retries exhausted', async () => {
+    test('resolves after max retries exhausted by default', async () => {
+      fetchMock = mock(() =>
+        Promise.resolve(new Response('Server Error', { status: 500 }))
+      );
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      await signal({
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
+        sessionId: 'session-123',
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    test('logs a warning by default when transport fails', async () => {
+      fetchMock = mock(() =>
+        Promise.resolve(new Response('Bad Request', { status: 400 }))
+      );
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      await signal({
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
+        sessionId: 'session-123',
+      });
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const [msg] = warnSpy.mock.calls[0] as [string, unknown];
+      expect(msg).toContain('Signal request failed');
+    });
+
+    test('logs per-attempt warning between retries', async () => {
+      fetchMock = mock(() =>
+        Promise.resolve(new Response('Server Error', { status: 500 }))
+      );
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      await signal({
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
+        sessionId: 'session-123',
+      });
+
+      // 3 attempts total → 2 per-attempt "retrying in" warnings + 1 post-loop "after N attempt(s)".
+      const messages = warnSpy.mock.calls.map((call: unknown[]) => call[0] as string);
+      const retryMsgs = messages.filter((m: string) => m.includes('retrying in'));
+      const finalMsgs = messages.filter((m: string) => m.includes('after 3 attempt(s)'));
+      expect(retryMsgs).toHaveLength(2);
+      expect(finalMsgs).toHaveLength(1);
+    });
+
+    test('raiseOnFailure=true re-throws after retries exhausted on 500', async () => {
       fetchMock = mock(() =>
         Promise.resolve(new Response('Server Error', { status: 500 }))
       );
@@ -311,8 +364,45 @@ describe('signal', () => {
           kind: SignalKind.FEEDBACK,
           source: SignalSource.HUMAN,
           sessionId: 'session-123',
+          raiseOnFailure: true,
         })
       ).rejects.toThrow();
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    test('raiseOnFailure=true throws immediately on non-retryable 400 without warning', async () => {
+      fetchMock = mock(() =>
+        Promise.resolve(new Response('Bad Request', { status: 400 }))
+      );
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      await expect(
+        signal({
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
+          sessionId: 'session-123',
+          raiseOnFailure: true,
+        })
+      ).rejects.toThrow();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // Matches Python: when raising, no post-loop warning is emitted.
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    test('raiseOnFailure=true re-throws on persistent network error', async () => {
+      fetchMock = mock(() => Promise.reject(new Error('Network error')));
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      await expect(
+        signal({
+          kind: SignalKind.FEEDBACK,
+          source: SignalSource.HUMAN,
+          sessionId: 'session-123',
+          raiseOnFailure: true,
+        })
+      ).rejects.toThrow('Network error');
 
       expect(fetchMock).toHaveBeenCalledTimes(3);
     });

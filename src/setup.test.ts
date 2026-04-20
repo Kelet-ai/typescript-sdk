@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 import { trace } from '@opentelemetry/api';
-import { configure, resetSetup } from './setup.ts';
+import { configure, resetSetup, shutdown } from './setup.ts';
 import { resetConfig, resolveConfig } from './config.ts';
 import { SESSION_ID_ATTR, USER_ID_ATTR, agenticSession } from './context.ts';
 
@@ -175,6 +175,110 @@ describe('configure (setup)', () => {
       const spans = exporter.getFinishedSpans();
       expect(spans).toHaveLength(1);
       expect(spans[0]!.attributes['kelet.project']).toBeUndefined();
+    });
+  });
+
+  describe('shutdown', () => {
+    test('awaits registered processor shutdown', async () => {
+      let shutdownCalled = false;
+      const mockProcessor = {
+        onStart: () => {},
+        onEnd: () => {},
+        shutdown: mock(async () => {
+          shutdownCalled = true;
+        }),
+        forceFlush: async () => {},
+      };
+      const provider = new BasicTracerProvider();
+
+      configure({
+        apiKey: 'test-key',
+        project: 'test-proj',
+        tracerProvider: provider,
+        spanProcessor: mockProcessor,
+      });
+
+      await shutdown();
+
+      expect(shutdownCalled).toBe(true);
+      expect(mockProcessor.shutdown).toHaveBeenCalledTimes(1);
+    });
+
+    test('swallows errors from a failing processor', async () => {
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+      const failingProcessor = {
+        onStart: () => {},
+        onEnd: () => {},
+        shutdown: async () => {
+          throw new Error('boom');
+        },
+        forceFlush: async () => {},
+      };
+      const provider = new BasicTracerProvider();
+
+      configure({
+        apiKey: 'test-key',
+        project: 'test-proj',
+        tracerProvider: provider,
+        spanProcessor: failingProcessor,
+      });
+
+      // Should not throw.
+      await shutdown();
+
+      expect(warnSpy).toHaveBeenCalled();
+      const [msg] = warnSpy.mock.calls[0] as [string, unknown];
+      expect(msg).toContain('processor shutdown failed');
+      warnSpy.mockRestore();
+    });
+
+    test('is idempotent', async () => {
+      const mockProcessor = {
+        onStart: () => {},
+        onEnd: () => {},
+        shutdown: mock(async () => {}),
+        forceFlush: async () => {},
+      };
+      const provider = new BasicTracerProvider();
+
+      configure({
+        apiKey: 'test-key',
+        project: 'test-proj',
+        tracerProvider: provider,
+        spanProcessor: mockProcessor,
+      });
+
+      await shutdown();
+      await shutdown();
+
+      expect(mockProcessor.shutdown).toHaveBeenCalledTimes(1);
+    });
+
+    test('allows re-configure after shutdown', async () => {
+      const exporter = new InMemorySpanExporter();
+      const provider = new BasicTracerProvider();
+      provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+
+      configure({
+        apiKey: 'test-key',
+        project: 'proj-before',
+        tracerProvider: provider,
+      });
+      await shutdown();
+
+      configure({
+        apiKey: 'test-key',
+        project: 'proj-after',
+        tracerProvider: provider,
+      });
+
+      const tracer = provider.getTracer('test');
+      const span = tracer.startSpan('post-reconfigure');
+      span.end();
+
+      const spans = exporter.getFinishedSpans();
+      expect(spans).toHaveLength(1);
+      expect(spans[0]!.attributes['kelet.project']).toBe('proj-after');
     });
   });
 });

@@ -40,6 +40,23 @@ export interface ConfigureOptions extends KeletConfigOptions {
 
 let _configured = false;
 let _provider: BasicTracerProvider | undefined;
+const _activeProcessors: SpanProcessor[] = [];
+let _exitHooksRegistered = false;
+
+function _registerExitHooks(): void {
+  if (_exitHooksRegistered) return;
+  _exitHooksRegistered = true;
+
+  // Natural event-loop drain: async hook allowed, so span exporters can flush.
+  // We deliberately do NOT register SIGINT/SIGTERM handlers — attaching a listener
+  // suppresses Node's default exit-on-signal, and calling process.exit() from a
+  // library would override the host app's graceful-shutdown logic. Callers who
+  // want to flush on signals should install their own handler that awaits
+  // shutdown() before exiting.
+  process.once('beforeExit', () => {
+    void shutdown();
+  });
+}
 
 /**
  * Configure the Kelet SDK and set up the OTEL tracing pipeline.
@@ -120,6 +137,8 @@ export function configure(options: ConfigureOptions = {}): void {
         _provider.register();
       }
 
+      _activeProcessors.push(processor);
+      _registerExitHooks();
       _configured = true;
     } catch {
       // Config not fully resolvable (e.g., no API key) — just store for later
@@ -128,11 +147,56 @@ export function configure(options: ConfigureOptions = {}): void {
 }
 
 /**
+ * Shut down the Kelet SDK and flush any pending spans.
+ *
+ * Called automatically on `beforeExit` (natural event-loop drain). Call it
+ * manually from your own signal handlers or before an explicit `process.exit(N)`
+ * — the SDK intentionally does not install signal handlers, so as not to
+ * override the host app's graceful-shutdown logic.
+ *
+ * Errors from individual processors are logged and swallowed (best-effort).
+ *
+ * @example
+ * ```typescript
+ * // Flush on SIGINT/SIGTERM from your own handler:
+ * process.on('SIGTERM', async () => {
+ *   await shutdown();
+ *   process.exit(143);
+ * });
+ * ```
+ */
+export async function shutdown(): Promise<void> {
+  const processors = _activeProcessors.splice(0, _activeProcessors.length);
+  for (const processor of processors) {
+    try {
+      await processor.shutdown();
+    } catch (err) {
+      console.warn('[kelet] processor shutdown failed:', err);
+    }
+  }
+
+  // Capture and null out synchronously so a concurrent second shutdown() call
+  // won't double-await the same provider instance.
+  const provider = _provider;
+  _provider = undefined;
+  if (provider) {
+    try {
+      await provider.shutdown();
+    } catch (err) {
+      console.warn('[kelet] provider shutdown failed:', err);
+    }
+  }
+
+  _configured = false;
+}
+
+/**
  * Reset setup state. Used for testing.
  * @internal
  */
 export function resetSetup(): void {
   _configured = false;
+  _activeProcessors.length = 0;
   if (_provider) {
     void _provider.shutdown();
     _provider = undefined;
