@@ -432,15 +432,19 @@ configure({
 
 ### shutdown()
 
-Flush any pending spans and release SDK resources. Called automatically on `beforeExit`, `SIGINT`, and `SIGTERM`, so most apps never need to invoke it directly. Call it manually before a hard `process.exit(N)` — Node doesn't expose an async hook for that path.
+Flush any pending spans and release SDK resources. Called automatically on `beforeExit` (natural event-loop drain). Call it manually from your own signal handlers or before a hard `process.exit(N)`.
 
 ```typescript
 import { shutdown } from 'kelet';
 
-await shutdown();
+// Flush on SIGINT/SIGTERM from your own handler:
+process.on('SIGTERM', async () => {
+  await shutdown();
+  process.exit(143);
+});
 ```
 
-Errors from individual processors are logged and swallowed (best-effort).
+The SDK intentionally does not install `SIGINT`/`SIGTERM` handlers — attaching a listener suppresses Node's default exit-on-signal, and calling `process.exit()` from a library would override your app's graceful-shutdown logic. Errors from individual processors are logged and swallowed (best-effort).
 
 ### Types
 

@@ -48,24 +48,13 @@ function _registerExitHooks(): void {
   _exitHooksRegistered = true;
 
   // Natural event-loop drain: async hook allowed, so span exporters can flush.
+  // We deliberately do NOT register SIGINT/SIGTERM handlers — attaching a listener
+  // suppresses Node's default exit-on-signal, and calling process.exit() from a
+  // library would override the host app's graceful-shutdown logic. Callers who
+  // want to flush on signals should install their own handler that awaits
+  // shutdown() before exiting.
   process.once('beforeExit', () => {
     void shutdown();
-  });
-
-  // Signals. Our handler suppresses the default exit, so we must re-exit manually.
-  process.once('SIGINT', async () => {
-    try {
-      await shutdown();
-    } finally {
-      process.exit(130);
-    }
-  });
-  process.once('SIGTERM', async () => {
-    try {
-      await shutdown();
-    } finally {
-      process.exit(143);
-    }
   });
 }
 
@@ -160,12 +149,21 @@ export function configure(options: ConfigureOptions = {}): void {
 /**
  * Shut down the Kelet SDK and flush any pending spans.
  *
- * Called automatically on `beforeExit`, `SIGINT`, and `SIGTERM`. Safe to call
- * manually — useful before an explicit `process.exit(N)`, which Node does not
- * expose an async hook for.
+ * Called automatically on `beforeExit` (natural event-loop drain). Call it
+ * manually from your own signal handlers or before an explicit `process.exit(N)`
+ * — the SDK intentionally does not install signal handlers, so as not to
+ * override the host app's graceful-shutdown logic.
  *
- * Errors from individual processors are logged and swallowed (best-effort),
- * matching the Python SDK's `atexit` behavior.
+ * Errors from individual processors are logged and swallowed (best-effort).
+ *
+ * @example
+ * ```typescript
+ * // Flush on SIGINT/SIGTERM from your own handler:
+ * process.on('SIGTERM', async () => {
+ *   await shutdown();
+ *   process.exit(143);
+ * });
+ * ```
  */
 export async function shutdown(): Promise<void> {
   const processors = _activeProcessors.splice(0, _activeProcessors.length);
