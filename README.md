@@ -367,8 +367,11 @@ await signal({
   confidence?: number,             // 0.0 to 1.0
   metadata?: Record<string, unknown>,  // Additional metadata
   timestamp?: Date | string,       // Event timestamp
+  raiseOnFailure?: boolean,        // Re-raise transport/HTTP failures (default: false)
 });
 ```
+
+Transport and HTTP failures are retried with exponential backoff, then logged via `console.warn` and swallowed by default — `signal()` is a telemetry call and won't crash your code path. Pass `raiseOnFailure: true` to opt into re-raising after retries are exhausted. Validation errors (bad `score`/`confidence` ranges, missing identifier) always throw regardless.
 
 ### agenticSession()
 
@@ -426,6 +429,18 @@ configure({
   spanProcessor?: SpanProcessor,         // Optional: use this instead of default KeletSpanProcessor
 });
 ```
+
+### shutdown()
+
+Flush any pending spans and release SDK resources. Called automatically on `beforeExit`, `SIGINT`, and `SIGTERM`, so most apps never need to invoke it directly. Call it manually before a hard `process.exit(N)` — Node doesn't expose an async hook for that path.
+
+```typescript
+import { shutdown } from 'kelet';
+
+await shutdown();
+```
+
+Errors from individual processors are logged and swallowed (best-effort).
 
 ### Types
 

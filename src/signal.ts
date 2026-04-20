@@ -36,6 +36,12 @@ export interface SignalOptions {
   metadata?: Record<string, unknown>;
   /** Event timestamp. */
   timestamp?: Date | string;
+  /**
+   * Re-raise transport/HTTP failures after retries are exhausted.
+   * Defaults to `false`: transport errors are logged via `console.warn` and swallowed.
+   * Validation errors (bad score/confidence, missing identifier) always throw regardless.
+   */
+  raiseOnFailure?: boolean;
 }
 
 /**
@@ -60,10 +66,13 @@ export class SignalError extends Error {
  *
  * Includes retry logic with exponential backoff for transient failures.
  *
+ * Transport/HTTP failures after retries are logged and swallowed by default, matching
+ * the Python SDK. Pass `raiseOnFailure: true` to re-raise instead.
+ *
  * @param options - Signal options including kind, source, and identifier
  * @throws {Error} If neither sessionId nor traceId is provided
  * @throws {Error} If score or confidence is outside 0-1 range
- * @throws {SignalError} If the request fails after retries
+ * @throws {SignalError} If `raiseOnFailure` is true and the request fails after retries
  *
  * @example
  * ```typescript
@@ -90,7 +99,17 @@ export class SignalError extends Error {
  * ```
  */
 export async function signal(options: SignalOptions): Promise<void> {
-  const { kind, source, triggerName, score, value, confidence, metadata, timestamp } = options;
+  const {
+    kind,
+    source,
+    triggerName,
+    score,
+    value,
+    confidence,
+    metadata,
+    timestamp,
+    raiseOnFailure = false,
+  } = options;
 
   // Validate score range
   if (score !== undefined && (score < 0 || score > 1)) {
@@ -134,8 +153,13 @@ export async function signal(options: SignalOptions): Promise<void> {
 
   // Retry with exponential backoff
   let lastError: Error | undefined;
+  let attemptCount = 0;
+  // Matches Python: on non-retryable + raise_on_failure, the loop exits without
+  // emitting the post-loop warning (the caller is about to see the exception).
+  let suppressWarning = false;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    attemptCount = attempt + 1;
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -150,17 +174,6 @@ export async function signal(options: SignalOptions): Promise<void> {
         return;
       }
 
-      // Check if retryable
-      if (!RETRYABLE_STATUS_CODES.has(response.status)) {
-        const responseText = await response.text();
-        throw new SignalError(
-          `Signal request failed with status ${response.status}`,
-          response.status,
-          responseText
-        );
-      }
-
-      // Retryable error - continue loop
       const responseText = await response.text();
       lastError = new SignalError(
         `Signal request failed with status ${response.status}`,
@@ -168,20 +181,23 @@ export async function signal(options: SignalOptions): Promise<void> {
         responseText
       );
 
-      // Wait before retry (exponential backoff)
+      // Non-retryable HTTP status — stop looping, fall through to post-loop handling.
+      if (!RETRYABLE_STATUS_CODES.has(response.status)) {
+        if (raiseOnFailure) {
+          suppressWarning = true;
+        }
+        break;
+      }
+
+      // Retryable — wait before next attempt.
       if (attempt < MAX_RETRIES - 1) {
         const waitTime = RETRY_BACKOFF_BASE_MS * 2 ** attempt;
         await new Promise((resolve) => setTimeout(resolve, waitTime));
       }
     } catch (error) {
-      // Network errors are retryable
-      if (error instanceof SignalError) {
-        throw error; // Non-retryable HTTP error
-      }
-
+      // Network / fetch rejection — always retryable.
       lastError = error instanceof Error ? error : new Error(String(error));
 
-      // Wait before retry
       if (attempt < MAX_RETRIES - 1) {
         const waitTime = RETRY_BACKOFF_BASE_MS * 2 ** attempt;
         await new Promise((resolve) => setTimeout(resolve, waitTime));
@@ -189,8 +205,15 @@ export async function signal(options: SignalOptions): Promise<void> {
     }
   }
 
-  // All retries exhausted
   if (lastError) {
-    throw lastError;
+    if (!suppressWarning) {
+      console.warn(
+        `[kelet] Signal request failed after ${attemptCount} attempt(s):`,
+        lastError
+      );
+    }
+    if (raiseOnFailure) {
+      throw lastError;
+    }
   }
 }
