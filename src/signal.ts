@@ -191,16 +191,24 @@ export async function signal(options: SignalOptions): Promise<void> {
 
       // Retryable — wait before next attempt.
       if (attempt < MAX_RETRIES - 1) {
-        const waitTime = RETRY_BACKOFF_BASE_MS * 2 ** attempt;
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        const waitMs = RETRY_BACKOFF_BASE_MS * 2 ** attempt;
+        console.warn(
+          `[kelet] Signal request failed (attempt ${attemptCount}/${MAX_RETRIES}), retrying in ${waitMs / 1000}s:`,
+          lastError
+        );
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
     } catch (error) {
       // Network / fetch rejection — always retryable.
       lastError = error instanceof Error ? error : new Error(String(error));
 
       if (attempt < MAX_RETRIES - 1) {
-        const waitTime = RETRY_BACKOFF_BASE_MS * 2 ** attempt;
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        const waitMs = RETRY_BACKOFF_BASE_MS * 2 ** attempt;
+        console.warn(
+          `[kelet] Signal request failed (attempt ${attemptCount}/${MAX_RETRIES}), retrying in ${waitMs / 1000}s:`,
+          lastError
+        );
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
     }
   }

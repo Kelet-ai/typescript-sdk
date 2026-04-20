@@ -333,6 +333,26 @@ describe('signal', () => {
       expect(msg).toContain('Signal request failed');
     });
 
+    test('logs per-attempt warning between retries', async () => {
+      fetchMock = mock(() =>
+        Promise.resolve(new Response('Server Error', { status: 500 }))
+      );
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      await signal({
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
+        sessionId: 'session-123',
+      });
+
+      // 3 attempts total → 2 per-attempt "retrying in" warnings + 1 post-loop "after N attempt(s)".
+      const messages = warnSpy.mock.calls.map((call: unknown[]) => call[0] as string);
+      const retryMsgs = messages.filter((m: string) => m.includes('retrying in'));
+      const finalMsgs = messages.filter((m: string) => m.includes('after 3 attempt(s)'));
+      expect(retryMsgs).toHaveLength(2);
+      expect(finalMsgs).toHaveLength(1);
+    });
+
     test('raiseOnFailure=true re-throws after retries exhausted on 500', async () => {
       fetchMock = mock(() =>
         Promise.resolve(new Response('Server Error', { status: 500 }))
