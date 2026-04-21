@@ -1,3 +1,12 @@
+## [0.5.3](https://github.com/kelet-ai/typescript-sdk/compare/v0.5.2...v0.5.3) (2026-04-21)
+
+
+### Bug Fixes
+
+* **configure:** warn-and-no-op on missing KELET_API_KEY instead of crashing ([6e91fc6](https://github.com/kelet-ai/typescript-sdk/commit/6e91fc6222a7b869a545775b101001883bdc0dc3))
+
+
+
 ## [0.5.2](https://github.com/kelet-ai/typescript-sdk/compare/v0.5.1...v0.5.2) (2026-04-20)
 
 
@@ -43,15 +52,6 @@
 ### Features
 
 * **KEL-329:** auto-instrumentation for Anthropic, OpenAI, LangChain/LangGraph [WIP] ([a644bfb](https://github.com/kelet-ai/typescript-sdk/commit/a644bfb9f09ae9882d1b2669e733d8b8265e1266))
-
-
-
-## [0.3.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.3.0...v0.3.1) (2026-02-27)
-
-
-### Bug Fixes
-
-* update build verification test to expect `SignalKind` instead of `SignalVote` ([06361e8](https://github.com/kelet-ai/typescript-sdk/commit/06361e8b2a48841835a28062c06e33bff5403b69))
 
 
 
