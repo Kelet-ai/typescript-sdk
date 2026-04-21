@@ -513,6 +513,8 @@ describe('signal when unconfigured', () => {
   afterEach(() => {
     resetConfig();
     _resetSignalWarnState();
+    resetSetup();
+    _resetSetupWarnState();
     warnSpy.mockRestore();
   });
 
