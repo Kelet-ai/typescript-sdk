@@ -3,7 +3,7 @@
  * @module signal
  */
 
-import { resolveConfig } from './config';
+import { resolveConfig, type KeletConfig } from './config';
 import { getSessionId, getTraceId as getContextTraceId } from './context';
 import type { SignalKind, SignalSource } from './types';
 
@@ -150,7 +150,7 @@ export async function signal(options: SignalOptions): Promise<void> {
     throw new Error('Either sessionId or traceId required. Use agenticSession() or pass explicitly.');
   }
 
-  let config;
+  let config: KeletConfig;
   try {
     config = resolveConfig();
   } catch {

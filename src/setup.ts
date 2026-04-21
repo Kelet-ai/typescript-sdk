@@ -8,6 +8,7 @@ import {
   configure as setConfig,
   resolveConfig,
   setSharedConfig,
+  type KeletConfig,
   type KeletConfigOptions,
 } from './config';
 import { KeletSpanProcessor } from './processor';
@@ -38,10 +39,11 @@ export interface ConfigureOptions extends KeletConfigOptions {
   spanProcessor?: SpanProcessor;
   /**
    * If `true`, re-raise errors on missing credentials instead of warning and
-   * disabling telemetry. Default `false` — missing `KELET_API_KEY` or
-   * `KELET_PROJECT` logs a single warning and installs a no-op; `signal()`
-   * becomes a silent no-op while `agenticSession()` still runs the callback
-   * with context but no spans are exported.
+   * disabling telemetry. Missing `KELET_API_KEY` or `KELET_PROJECT` logs a
+   * single warning and installs a no-op; `signal()` becomes a silent no-op
+   * while `agenticSession()` still runs the callback with context but no
+   * spans are exported.
+   * @default false
    */
   strict?: boolean;
 }
@@ -127,7 +129,7 @@ export function configure(options: ConfigureOptions = {}): void {
 
   if (_configured) return;
 
-  let config;
+  let config: KeletConfig;
   try {
     config = resolveConfig(configOptions);
   } catch (err) {

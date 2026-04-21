@@ -3,6 +3,11 @@ import { resetConfig, configure } from './config.ts';
 import { _resetSignalWarnState, signal } from './signal.ts';
 import { SignalKind, SignalSource } from './types.ts';
 import { agenticSession } from './context.ts';
+import {
+  _resetSetupWarnState,
+  configure as setupConfigure,
+  resetSetup,
+} from './setup.ts';
 
 describe('signal', () => {
   let fetchMock: ReturnType<typeof mock>;
@@ -533,5 +538,25 @@ describe('signal when unconfigured', () => {
       m.includes('signal() called before configure()')
     );
     expect(unconfiguredMsgs).toHaveLength(1);
+  });
+
+  test('configure() with missing creds + signal() emits one setup-warn and one signal-warn', async () => {
+    // Setup warn-once and signal warn-once are intentionally separate flags (matches Python).
+    // The setup warn explains telemetry disabled at init; the signal warn explains the drop
+    // at the hot path. Each fires at most once per process.
+    resetSetup();
+    _resetSetupWarnState();
+
+    setupConfigure({}); // warns once via setup
+    await signal({ kind: SignalKind.FEEDBACK, source: SignalSource.HUMAN, sessionId: 's' });
+    await signal({ kind: SignalKind.FEEDBACK, source: SignalSource.HUMAN, sessionId: 's' });
+
+    const messages = warnSpy.mock.calls.map((call: unknown[]) => call[0] as string);
+    const setupMsgs = messages.filter((m: string) => m.includes('Telemetry disabled'));
+    const signalMsgs = messages.filter((m: string) =>
+      m.includes('signal() called before configure()')
+    );
+    expect(setupMsgs).toHaveLength(1);
+    expect(signalMsgs).toHaveLength(1);
   });
 });
