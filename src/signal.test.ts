@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { resetConfig, configure } from './config.ts';
-import { signal } from './signal.ts';
+import { _resetSignalWarnState, signal } from './signal.ts';
 import { SignalKind, SignalSource } from './types.ts';
 import { agenticSession } from './context.ts';
+import {
+  _resetSetupWarnState,
+  configure as setupConfigure,
+  resetSetup,
+} from './setup.ts';
 
 describe('signal', () => {
   let fetchMock: ReturnType<typeof mock>;
@@ -10,6 +15,7 @@ describe('signal', () => {
 
   beforeEach(() => {
     resetConfig();
+    _resetSignalWarnState();
     configure({ apiKey: 'test-key', project: 'test-project' });
 
     // Mock global fetch
@@ -24,6 +30,7 @@ describe('signal', () => {
 
   afterEach(() => {
     resetConfig();
+    _resetSignalWarnState();
     warnSpy.mockRestore();
   });
 
@@ -482,5 +489,76 @@ describe('signal', () => {
         'Either sessionId or traceId required. Use agenticSession() or pass explicitly.'
       );
     });
+  });
+});
+
+describe('signal when unconfigured', () => {
+  let fetchMock: ReturnType<typeof mock>;
+  let warnSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    resetConfig();
+    _resetSignalWarnState();
+    delete process.env.KELET_API_KEY;
+    delete process.env.KELET_PROJECT;
+
+    fetchMock = mock(() =>
+      Promise.resolve(new Response(JSON.stringify({ success: true }), { status: 200 }))
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    resetConfig();
+    _resetSignalWarnState();
+    resetSetup();
+    _resetSetupWarnState();
+    warnSpy.mockRestore();
+  });
+
+  test('resolves to undefined without throwing when no config is set', async () => {
+    await expect(
+      signal({
+        kind: SignalKind.FEEDBACK,
+        source: SignalSource.HUMAN,
+        sessionId: 'session-123',
+      })
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('warn fires at most once across repeated unconfigured signal() calls', async () => {
+    await signal({ kind: SignalKind.FEEDBACK, source: SignalSource.HUMAN, sessionId: 's' });
+    await signal({ kind: SignalKind.FEEDBACK, source: SignalSource.HUMAN, sessionId: 's' });
+    await signal({ kind: SignalKind.FEEDBACK, source: SignalSource.HUMAN, sessionId: 's' });
+
+    const messages = warnSpy.mock.calls.map((call: unknown[]) => call[0] as string);
+    const unconfiguredMsgs = messages.filter((m: string) =>
+      m.includes('signal() called before configure()')
+    );
+    expect(unconfiguredMsgs).toHaveLength(1);
+  });
+
+  test('configure() with missing creds + signal() emits one setup-warn and one signal-warn', async () => {
+    // Setup warn-once and signal warn-once are intentionally separate flags (matches Python).
+    // The setup warn explains telemetry disabled at init; the signal warn explains the drop
+    // at the hot path. Each fires at most once per process.
+    resetSetup();
+    _resetSetupWarnState();
+
+    setupConfigure({}); // warns once via setup
+    await signal({ kind: SignalKind.FEEDBACK, source: SignalSource.HUMAN, sessionId: 's' });
+    await signal({ kind: SignalKind.FEEDBACK, source: SignalSource.HUMAN, sessionId: 's' });
+
+    const messages = warnSpy.mock.calls.map((call: unknown[]) => call[0] as string);
+    const setupMsgs = messages.filter((m: string) => m.includes('Telemetry disabled'));
+    const signalMsgs = messages.filter((m: string) =>
+      m.includes('signal() called before configure()')
+    );
+    expect(setupMsgs).toHaveLength(1);
+    expect(signalMsgs).toHaveLength(1);
   });
 });

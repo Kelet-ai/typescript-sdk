@@ -8,6 +8,7 @@ import {
   configure as setConfig,
   resolveConfig,
   setSharedConfig,
+  type KeletConfig,
   type KeletConfigOptions,
 } from './config';
 import { KeletSpanProcessor } from './processor';
@@ -36,12 +37,30 @@ export interface ConfigureOptions extends KeletConfigOptions {
    * on an active session context).
    */
   spanProcessor?: SpanProcessor;
+  /**
+   * If `true`, re-raise errors on missing credentials instead of warning and
+   * disabling telemetry. Missing `KELET_API_KEY` or `KELET_PROJECT` logs a
+   * single warning and installs a no-op; `signal()` becomes a silent no-op
+   * while `agenticSession()` still runs the callback with context but no
+   * spans are exported.
+   * @default false
+   */
+  strict?: boolean;
 }
 
 let _configured = false;
 let _provider: BasicTracerProvider | undefined;
 const _activeProcessors: SpanProcessor[] = [];
 let _exitHooksRegistered = false;
+let _warnedDisabled = false;
+
+/**
+ * Reset the warn-once flag. For testing only.
+ * @internal
+ */
+export function _resetSetupWarnState(): void {
+  _warnedDisabled = false;
+}
 
 function _registerExitHooks(): void {
   if (_exitHooksRegistered) return;
@@ -66,8 +85,12 @@ function _registerExitHooks(): void {
  * 2. Creates a KeletExporter + KeletSpanProcessor
  * 3. Registers with an existing or new TracerProvider
  *
- * If the config is not fully resolvable (e.g., no API key available),
- * only step 1 runs — the OTEL pipeline is not created.
+ * Missing credentials are non-fatal by default: if `KELET_API_KEY` or
+ * `KELET_PROJECT` cannot be resolved from args or env vars, `configure()`
+ * logs a single warning and returns without installing the SDK. `signal()`
+ * becomes a silent no-op; `agenticSession()` still runs the callback with
+ * context but no spans are exported. Pass `strict: true` to fail-fast
+ * instead (re-throws the original error).
  *
  * @param options - Configuration and optional TracerProvider
  *
@@ -99,51 +122,61 @@ function _registerExitHooks(): void {
  * ```
  */
 export function configure(options: ConfigureOptions = {}): void {
-  const { tracerProvider, spanProcessor, ...configOptions } = options;
+  const { tracerProvider, spanProcessor, strict = false, ...configOptions } = options;
 
-  // Always store config (for signal(), resolveConfig(), etc.)
+  // Always store partial config (for resolveConfig() priority chain etc.)
   setConfig(configOptions);
 
-  // Set up OTEL pipeline (once)
-  if (!_configured) {
-    try {
-      const config = resolveConfig(configOptions);
-      setSharedConfig(config);
+  if (_configured) return;
 
-      let processor: SpanProcessor;
-      if (spanProcessor !== undefined) {
-        // Use provided processor — skips creating default exporter/KeletSpanProcessor
-        processor = spanProcessor;
-      } else {
-        const exporter = new OTLPTraceExporter({
-          url: `${config.apiUrl}/api/traces`,
-          headers: {
-            Authorization: config.apiKey,
-            'X-Kelet-Project': config.project,
-          },
-        });
-
-        // Cast needed due to duplicate @opentelemetry/sdk-trace-base versions in OTEL packages
-        processor = new KeletSpanProcessor(new SimpleSpanProcessor(exporter as unknown as SpanExporter), {
-          project: config.project,
-        });
-      }
-
-      if (tracerProvider) {
-        tracerProvider.addSpanProcessor(processor);
-      } else {
-        _provider = new BasicTracerProvider();
-        _provider.addSpanProcessor(processor);
-        _provider.register();
-      }
-
-      _activeProcessors.push(processor);
-      _registerExitHooks();
-      _configured = true;
-    } catch {
-      // Config not fully resolvable (e.g., no API key) — just store for later
+  let config: KeletConfig;
+  try {
+    config = resolveConfig(configOptions);
+  } catch (err) {
+    if (strict) throw err;
+    if (!_warnedDisabled) {
+      _warnedDisabled = true;
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[kelet] Telemetry disabled: ${message} Host app will continue running; ` +
+          `signal() becomes a silent no-op. Pass strict: true to configure() to fail-fast instead.`
+      );
     }
+    return;
   }
+
+  setSharedConfig(config);
+
+  let processor: SpanProcessor;
+  if (spanProcessor !== undefined) {
+    // Use provided processor — skips creating default exporter/KeletSpanProcessor
+    processor = spanProcessor;
+  } else {
+    const exporter = new OTLPTraceExporter({
+      url: `${config.apiUrl}/api/traces`,
+      headers: {
+        Authorization: config.apiKey,
+        'X-Kelet-Project': config.project,
+      },
+    });
+
+    // Cast needed due to duplicate @opentelemetry/sdk-trace-base versions in OTEL packages
+    processor = new KeletSpanProcessor(new SimpleSpanProcessor(exporter as unknown as SpanExporter), {
+      project: config.project,
+    });
+  }
+
+  if (tracerProvider) {
+    tracerProvider.addSpanProcessor(processor);
+  } else {
+    _provider = new BasicTracerProvider();
+    _provider.addSpanProcessor(processor);
+    _provider.register();
+  }
+
+  _activeProcessors.push(processor);
+  _registerExitHooks();
+  _configured = true;
 }
 
 /**
@@ -197,6 +230,7 @@ export async function shutdown(): Promise<void> {
 export function resetSetup(): void {
   _configured = false;
   _activeProcessors.length = 0;
+  _warnedDisabled = false;
   if (_provider) {
     void _provider.shutdown();
     _provider = undefined;

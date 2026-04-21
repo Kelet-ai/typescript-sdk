@@ -25,31 +25,18 @@ let _globalConfig: KeletConfigOptions | undefined;
 let _sharedConfig: KeletConfig | undefined;
 
 /**
- * Configure global defaults for Kelet SDK.
+ * Store global configuration defaults for Kelet SDK.
  *
  * Values set here are used when not overridden by explicit parameters
- * or shared config (from KeletExporter).
+ * or shared config (from KeletExporter). No validation is performed —
+ * strict checks happen in {@link resolveConfig}. This function is called
+ * internally by {@link import('./setup').configure}, which wraps it with
+ * warn-and-no-op semantics for missing credentials.
  *
+ * @internal
  * @param options - Configuration options
- *
- * @example
- * ```typescript
- * import { configure } from 'kelet';
- *
- * configure({
- *   apiKey: 'your-api-key',
- *   project: 'my-project',
- * });
- * ```
  */
 export function configure(options: KeletConfigOptions): void {
-  const project = options.project ?? process.env.KELET_PROJECT;
-  if (!project) {
-    throw new Error(
-      'KELET_PROJECT required. Set the KELET_PROJECT env var or pass project: to configure().\n' +
-      'Create a project at https://console.kelet.ai'
-    );
-  }
   _globalConfig = options;
 }
 

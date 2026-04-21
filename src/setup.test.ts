@@ -5,7 +5,7 @@ import {
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 import { trace } from '@opentelemetry/api';
-import { configure, resetSetup, shutdown } from './setup.ts';
+import { _resetSetupWarnState, configure, resetSetup, shutdown } from './setup.ts';
 import { resetConfig, resolveConfig } from './config.ts';
 import { SESSION_ID_ATTR, USER_ID_ATTR, agenticSession } from './context.ts';
 
@@ -15,6 +15,7 @@ describe('configure (setup)', () => {
   beforeEach(() => {
     resetConfig();
     resetSetup();
+    _resetSetupWarnState();
     delete process.env.KELET_API_KEY;
     delete process.env.KELET_PROJECT;
     delete process.env.KELET_API_URL;
@@ -23,6 +24,7 @@ describe('configure (setup)', () => {
   afterEach(() => {
     resetConfig();
     resetSetup();
+    _resetSetupWarnState();
     process.env = { ...originalEnv };
   });
 
@@ -36,11 +38,13 @@ describe('configure (setup)', () => {
     });
 
     test('stores config even when apiKey is missing (no OTEL setup)', () => {
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
       configure({ project: 'partial-proj' });
 
       // resolveConfig with explicit apiKey should use stored project
       const config = resolveConfig({ apiKey: 'explicit-key' });
       expect(config.project).toBe('partial-proj');
+      warnSpy.mockRestore();
     });
   });
 
@@ -106,6 +110,7 @@ describe('configure (setup)', () => {
     });
 
     test('does not set up OTEL when apiKey is missing', () => {
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
       // Should not throw
       configure({ project: 'no-key-proj' });
 
@@ -115,6 +120,7 @@ describe('configure (setup)', () => {
       span.end();
       // Noop spans have all-zero trace IDs
       expect(span.spanContext().traceId).toBe('00000000000000000000000000000000');
+      warnSpy.mockRestore();
     });
 
     test('does not double-setup on repeated calls', () => {
@@ -175,6 +181,71 @@ describe('configure (setup)', () => {
       const spans = exporter.getFinishedSpans();
       expect(spans).toHaveLength(1);
       expect(spans[0]!.attributes['kelet.project']).toBeUndefined();
+    });
+  });
+
+  describe('missing credentials', () => {
+    test('warns once and no-ops when apiKey is missing', () => {
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+
+      configure({ project: 'p' });
+
+      const messages = warnSpy.mock.calls.map((call: unknown[]) => call[0] as string);
+      const disabledMsgs = messages.filter((m: string) => m.includes('Telemetry disabled'));
+      expect(disabledMsgs).toHaveLength(1);
+      expect(disabledMsgs[0]).toContain('KELET_API_KEY required');
+      warnSpy.mockRestore();
+    });
+
+    test('warns once and no-ops when project is missing', () => {
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+
+      configure({ apiKey: 'k' });
+
+      const messages = warnSpy.mock.calls.map((call: unknown[]) => call[0] as string);
+      const disabledMsgs = messages.filter((m: string) => m.includes('Telemetry disabled'));
+      expect(disabledMsgs).toHaveLength(1);
+      expect(disabledMsgs[0]).toContain('KELET_PROJECT required');
+      warnSpy.mockRestore();
+    });
+
+    test('warn fires at most once per process even across multiple configure() calls', () => {
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+
+      configure({ project: 'p' });
+      configure({ project: 'p' });
+      configure({ project: 'p' });
+
+      const messages = warnSpy.mock.calls.map((call: unknown[]) => call[0] as string);
+      const disabledMsgs = messages.filter((m: string) => m.includes('Telemetry disabled'));
+      expect(disabledMsgs).toHaveLength(1);
+      warnSpy.mockRestore();
+    });
+
+    test('strict: true re-throws on missing apiKey instead of warning', () => {
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+      expect(() => configure({ project: 'p', strict: true })).toThrow('KELET_API_KEY required');
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    test('strict: true re-throws on missing project', () => {
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+      expect(() => configure({ apiKey: 'k', strict: true })).toThrow('KELET_PROJECT required');
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    test('explicit apiKey="" raises even without strict (falsy-env fallback)', () => {
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+      // Empty string fails the !apiKey check in resolveConfig; with strict=false the setup
+      // layer catches and warns (no throw). The point is the empty-string is treated as missing,
+      // not silently accepted as a valid key.
+      configure({ apiKey: '', project: 'p' });
+      const messages = warnSpy.mock.calls.map((call: unknown[]) => call[0] as string);
+      const disabledMsgs = messages.filter((m: string) => m.includes('Telemetry disabled'));
+      expect(disabledMsgs).toHaveLength(1);
+      warnSpy.mockRestore();
     });
   });
 
