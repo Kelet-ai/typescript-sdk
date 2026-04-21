@@ -12,6 +12,26 @@ const MAX_RETRIES = 3;
 const RETRY_BACKOFF_BASE_MS = 500;
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
+// Warn at most once per process when signal() is called without configuration.
+let _warnedUnconfigured = false;
+
+function _warnUnconfiguredOnce(): void {
+  if (_warnedUnconfigured) return;
+  _warnedUnconfigured = true;
+  console.warn(
+    '[kelet] signal() called before configure() and KELET_API_KEY/KELET_PROJECT ' +
+      'not set — dropping signal. Call configure() to enable.'
+  );
+}
+
+/**
+ * Reset the warn-once flag. For testing only.
+ * @internal
+ */
+export function _resetSignalWarnState(): void {
+  _warnedUnconfigured = false;
+}
+
 /**
  * Options for signal submission.
  */
@@ -130,7 +150,16 @@ export async function signal(options: SignalOptions): Promise<void> {
     throw new Error('Either sessionId or traceId required. Use agenticSession() or pass explicitly.');
   }
 
-  const config = resolveConfig();
+  let config;
+  try {
+    config = resolveConfig();
+  } catch {
+    // Missing KELET_API_KEY / KELET_PROJECT at the process level.
+    // configure() would have already warned if it was called;
+    // if not, warn once here so the silent drop is traceable.
+    _warnUnconfiguredOnce();
+    return;
+  }
 
   // Build URL
   const url = `${config.apiUrl}/api/projects/${config.project}/signal`;

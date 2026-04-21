@@ -95,9 +95,11 @@ describe('config', () => {
       expect(config.project).toBe('test-project');
     });
 
-    test('configure() throws when project is missing', () => {
+    test('configure() stores partial options without validating — resolveConfig is the strict gate', () => {
       delete process.env.KELET_PROJECT;
-      expect(() => configure({ apiKey: 'test-key' })).toThrow('KELET_PROJECT required');
+      // Storing config is cheap and never throws; resolveConfig() enforces required fields.
+      expect(() => configure({ apiKey: 'test-key' })).not.toThrow();
+      expect(() => resolveConfig()).toThrow('KELET_PROJECT required');
     });
   });
 

@@ -474,6 +474,7 @@ The SDK never disrupts your application:
 
 - **Async**: Telemetry exports in background, zero blocking
 - **Fail-safe**: Network errors handled with retries and exponential backoff
+- **Safe on missing credentials**: If `KELET_API_KEY` or `KELET_PROJECT` can't be resolved, `configure()` logs a single warning and installs a no-op — `signal()` becomes a silent no-op while `agenticSession()` still runs the callback with context but no spans are exported. Pass `strict: true` to `configure()` to fail-fast on CI / staging.
 - **Graceful**: If Kelet is down, your agent keeps running
 - **Standard**: Built on OpenTelemetry, works with any OTEL-compatible setup
 
