@@ -4,6 +4,7 @@
  */
 
 import { trace } from '@opentelemetry/api';
+import { logs as logsApi } from '@opentelemetry/api-logs';
 import {
   configure as setConfig,
   resolveConfig,
@@ -13,12 +14,20 @@ import {
 } from './config';
 import { KeletSpanProcessor } from './processor';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import {
   SimpleSpanProcessor,
   BasicTracerProvider,
   type SpanExporter,
   type SpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
+import {
+  LoggerProvider,
+  BatchLogRecordProcessor,
+  type LogRecordProcessor,
+} from '@opentelemetry/sdk-logs';
+import { Resource } from '@opentelemetry/resources';
+import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 
 /**
  * Options for {@link configure}.
@@ -50,7 +59,9 @@ export interface ConfigureOptions extends KeletConfigOptions {
 
 let _configured = false;
 let _provider: BasicTracerProvider | undefined;
+let _loggerProvider: LoggerProvider | undefined;
 const _activeProcessors: SpanProcessor[] = [];
+const _activeLogProcessors: LogRecordProcessor[] = [];
 let _exitHooksRegistered = false;
 let _warnedDisabled = false;
 
@@ -169,14 +180,69 @@ export function configure(options: ConfigureOptions = {}): void {
   if (tracerProvider) {
     tracerProvider.addSpanProcessor(processor);
   } else {
-    _provider = new BasicTracerProvider();
+    // Newer @opentelemetry/exporter-trace-otlp-http serializers dereference
+    // ``span.resource`` during export; a provider built without an explicit
+    // Resource crashes with ``Cannot read properties of undefined (reading
+    // 'name')``. Stamp a minimal Resource with a sensible service.name
+    // default derived from the Kelet project slug.
+    const resource = new Resource({
+      [SemanticResourceAttributes.SERVICE_NAME]: config.project || 'kelet',
+      'kelet.project': config.project,
+    });
+    _provider = new BasicTracerProvider({ resource });
     _provider.addSpanProcessor(processor);
     _provider.register();
   }
 
   _activeProcessors.push(processor);
+
+  // Install a LoggerProvider so the reasoning observer can emit OTLP log
+  // records to Kelet (Claude Code redacts thinking text in its native OTLP,
+  // so observer-emitted events go through this side channel). Mirror the
+  // trace exporter: same base URL, same auth, different path (``/api/logs``).
+  try {
+    const logExporter = new OTLPLogExporter({
+      url: `${config.apiUrl}/api/logs`,
+      headers: {
+        Authorization: config.apiKey,
+        'X-Kelet-Project': config.project,
+      },
+    });
+    const logProcessor = new BatchLogRecordProcessor(logExporter);
+    _loggerProvider = new LoggerProvider({
+      resource: new Resource({
+        [SemanticResourceAttributes.SERVICE_NAME]: config.project || 'kelet',
+        'kelet.project': config.project,
+      }),
+    });
+    _loggerProvider.addLogRecordProcessor(logProcessor);
+    logsApi.setGlobalLoggerProvider(_loggerProvider);
+    _activeLogProcessors.push(logProcessor);
+  } catch (err) {
+    console.warn('[kelet] failed to install LoggerProvider:', err);
+  }
+
+  _autoInstallReasoningObserver();
+
   _registerExitHooks();
   _configured = true;
+}
+
+/**
+ * Best-effort auto-install of the ``kelet.reasoning`` observer on
+ * ``@anthropic-ai/claude-agent-sdk`` if it's resolvable. Failure is swallowed
+ * — the host app doesn't depend on the SDK being installed.
+ */
+function _autoInstallReasoningObserver(): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sdk = require('@anthropic-ai/claude-agent-sdk');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { installReasoningObserver } = require('./claude-agent-sdk');
+    installReasoningObserver(sdk);
+  } catch {
+    // claude-agent-sdk not installed, or installer failed — silent.
+  }
 }
 
 /**
@@ -208,6 +274,15 @@ export async function shutdown(): Promise<void> {
     }
   }
 
+  const logProcessors = _activeLogProcessors.splice(0, _activeLogProcessors.length);
+  for (const processor of logProcessors) {
+    try {
+      await processor.shutdown();
+    } catch (err) {
+      console.warn('[kelet] log processor shutdown failed:', err);
+    }
+  }
+
   // Capture and null out synchronously so a concurrent second shutdown() call
   // won't double-await the same provider instance.
   const provider = _provider;
@@ -217,6 +292,16 @@ export async function shutdown(): Promise<void> {
       await provider.shutdown();
     } catch (err) {
       console.warn('[kelet] provider shutdown failed:', err);
+    }
+  }
+
+  const loggerProvider = _loggerProvider;
+  _loggerProvider = undefined;
+  if (loggerProvider) {
+    try {
+      await loggerProvider.shutdown();
+    } catch (err) {
+      console.warn('[kelet] logger provider shutdown failed:', err);
     }
   }
 
@@ -230,10 +315,16 @@ export async function shutdown(): Promise<void> {
 export function resetSetup(): void {
   _configured = false;
   _activeProcessors.length = 0;
+  _activeLogProcessors.length = 0;
   _warnedDisabled = false;
   if (_provider) {
     void _provider.shutdown();
     _provider = undefined;
   }
+  if (_loggerProvider) {
+    void _loggerProvider.shutdown();
+    _loggerProvider = undefined;
+  }
   trace.disable();
+  logsApi.disable();
 }
