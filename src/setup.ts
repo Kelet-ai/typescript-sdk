@@ -72,6 +72,18 @@ export function _resetSetupWarnState(): void {
   _warnedDisabled = false;
 }
 
+/**
+ * Build the OTel ``Resource`` attached to the Kelet-owned trace and log
+ * providers. Single source of truth for ``service.name`` and the
+ * ``kelet.project`` attribute so the two providers can't drift.
+ */
+function _buildKeletResource(config: KeletConfig): Resource {
+  return new Resource({
+    [SemanticResourceAttributes.SERVICE_NAME]: config.project || 'kelet',
+    'kelet.project': config.project,
+  });
+}
+
 function _registerExitHooks(): void {
   if (_exitHooksRegistered) return;
   _exitHooksRegistered = true;
@@ -176,6 +188,12 @@ export function configure(options: ConfigureOptions = {}): void {
     });
   }
 
+  // Shared Resource used by both the trace provider (when we own it) and
+  // the logger provider below. Keeping a single source of truth prevents
+  // ``service.name`` / ``kelet.project`` from drifting if they ever gain
+  // additional attributes.
+  const keletResource = _buildKeletResource(config);
+
   if (tracerProvider) {
     tracerProvider.addSpanProcessor(processor);
   } else {
@@ -184,11 +202,7 @@ export function configure(options: ConfigureOptions = {}): void {
     // Resource crashes with ``Cannot read properties of undefined (reading
     // 'name')``. Stamp a minimal Resource with a sensible service.name
     // default derived from the Kelet project slug.
-    const resource = new Resource({
-      [SemanticResourceAttributes.SERVICE_NAME]: config.project || 'kelet',
-      'kelet.project': config.project,
-    });
-    _provider = new BasicTracerProvider({ resource });
+    _provider = new BasicTracerProvider({ resource: keletResource });
     _provider.addSpanProcessor(processor);
     _provider.register();
   }
@@ -222,12 +236,7 @@ export function configure(options: ConfigureOptions = {}): void {
       },
     });
     const logProcessor = new BatchLogRecordProcessor(logExporter);
-    _loggerProvider = new LoggerProvider({
-      resource: new Resource({
-        [SemanticResourceAttributes.SERVICE_NAME]: config.project || 'kelet',
-        'kelet.project': config.project,
-      }),
-    });
+    _loggerProvider = new LoggerProvider({ resource: keletResource });
     _loggerProvider.addLogRecordProcessor(logProcessor);
     _activeLogProcessors.push(logProcessor);
     _wireReasoningLogger(_loggerProvider);

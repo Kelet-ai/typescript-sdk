@@ -203,34 +203,18 @@ export function installReasoningObserver<T extends ClaudeAgentSDKModule>(sdk: T)
       ...a: unknown[]
     ) => ClaudeSDKClientLike) {
       override query(...args: unknown[]): unknown {
-        const out = super.query(...args);
         // Some SDK versions return a stream from query(); others return void
-        // and expose messages via receiveMessages(). Wrap only when it's a
-        // stream.
-        if (isAsyncIterable(out)) {
-          return wrapStream(() => out as MessageStream);
-        }
-        return out;
+        // and expose messages via receiveMessages(). ``wrapMaybeStream`` is
+        // the passthrough-or-wrap helper shared with the other overrides.
+        return wrapMaybeStream(super.query(...args));
       }
 
       override receiveMessages(...args: unknown[]): unknown {
-        const fn = (Base.prototype as ClaudeSDKClientLike).receiveMessages;
-        if (typeof fn !== 'function') return undefined;
-        const out = fn.apply(this, args);
-        if (isAsyncIterable(out)) {
-          return wrapStream(() => out as MessageStream);
-        }
-        return out;
+        return invokeAndMaybeWrap(Base.prototype, 'receiveMessages', this, args);
       }
 
       override receiveResponse(...args: unknown[]): unknown {
-        const fn = (Base.prototype as ClaudeSDKClientLike).receiveResponse;
-        if (typeof fn !== 'function') return undefined;
-        const out = fn.apply(this, args);
-        if (isAsyncIterable(out)) {
-          return wrapStream(() => out as MessageStream);
-        }
-        return out;
+        return invokeAndMaybeWrap(Base.prototype, 'receiveResponse', this, args);
       }
     }
     (sdk as unknown as Record<string, unknown>).ClaudeSDKClient = ObservedClient;
@@ -252,6 +236,38 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
     typeof value === 'object' &&
     Symbol.asyncIterator in (value as Record<symbol, unknown>)
   );
+}
+
+/**
+ * If ``value`` is async-iterable, wrap it through ``wrapStream`` so yielded
+ * ``AssistantMessage``s get observed. Otherwise return it unchanged.
+ *
+ * Consolidates the pattern the three ``ClaudeSDKClient`` method overrides
+ * used to repeat inline.
+ */
+function wrapMaybeStream(value: unknown): unknown {
+  if (isAsyncIterable(value)) {
+    return wrapStream(() => value as MessageStream);
+  }
+  return value;
+}
+
+/**
+ * Look up ``method`` on ``proto``, invoke it with ``self`` + ``args``, and
+ * thread the result through ``wrapMaybeStream``. Returns ``undefined`` when
+ * the method isn't defined on the prototype — matches the pre-refactor
+ * behaviour where ``receiveMessages``/``receiveResponse`` could be absent
+ * on older SDK versions.
+ */
+function invokeAndMaybeWrap(
+  proto: ClaudeSDKClientLike,
+  method: 'receiveMessages' | 'receiveResponse',
+  self: unknown,
+  args: unknown[],
+): unknown {
+  const fn = proto[method];
+  if (typeof fn !== 'function') return undefined;
+  return wrapMaybeStream(fn.apply(self, args));
 }
 
 export { observeAssistantMessage, REASONING_EVENT_NAME } from './streamObserver';
