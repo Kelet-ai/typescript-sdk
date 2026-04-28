@@ -315,7 +315,7 @@ describe('installReasoningObserver', () => {
         seen.push(passthrough);
         const stream = (async function* () {
           yield { type: 'assistant', content: [] };
-        })() as AsyncIterable<unknown> & Record<string, unknown>;
+        })() as unknown as AsyncIterable<unknown> & Record<string, unknown>;
         return stream;
       },
     };
@@ -352,7 +352,7 @@ describe('integration-scoped logger', () => {
       query: (): AsyncIterable<unknown> & Record<string, unknown> => {
         const stream = (async function* () {
           yield { type: 'assistant', content: [{ thinking: 't' }] };
-        })() as AsyncIterable<unknown> & Record<string, unknown>;
+        })() as unknown as AsyncIterable<unknown> & Record<string, unknown>;
         return stream;
       },
     };
