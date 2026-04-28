@@ -30,8 +30,33 @@
  * @module claude-agent-sdk
  */
 
+import type { Logger } from '@opentelemetry/api-logs';
 import { logs as logsApi, SeverityNumber } from '@opentelemetry/api-logs';
 import { observeAssistantMessage, REASONING_EVENT_NAME } from './streamObserver';
+
+/**
+ * Scope name the Kelet server accepts on ``/api/logs``. The server filter
+ * is ``scope.name.startsWith('com.anthropic.claude_code')`` — anything
+ * else is warn-and-dropped before reaching the CC ingestion workflow.
+ * Changing this string is a breaking change on the ingestion contract.
+ */
+export const REASONING_SCOPE_NAME = 'com.anthropic.claude_code.kelet_reasoning';
+
+// Integration-scoped logger override — when ``configure()`` provisions
+// a dedicated ``LoggerProvider`` (to avoid clobbering the host app's
+// global provider), it registers that provider here and the wrapper
+// resolves its logger against it instead of the OTel global.
+let _scopedLogger: Logger | null = null;
+
+/**
+ * Register a ``Logger`` resolved from an integration-scoped provider.
+ * Called by ``configure()`` when it builds its own ``LoggerProvider``
+ * rather than installing one on the OTel global. No-op for unit tests
+ * that wire their own ``logsApi.setGlobalLoggerProvider``.
+ */
+export function setReasoningLogger(logger: Logger | null): void {
+  _scopedLogger = logger;
+}
 
 /** Minimal shape of ``query()`` arguments. */
 interface QueryArgsLike {
@@ -69,8 +94,12 @@ export interface ClaudeAgentSDKModule {
 /** Sentinel so double-install is a no-op. */
 const WRAPPED_MARKER: unique symbol = Symbol.for('kelet.claude_agent_sdk.observed');
 
-function getLogger() {
-  return logsApi.getLogger('kelet.claude_agent_sdk');
+function getLogger(): Logger {
+  // Prefer the integration-scoped logger when ``configure()`` provisioned
+  // one. Falls back to the OTel global for unit tests and for hosts that
+  // wire their own ``logsApi.setGlobalLoggerProvider`` upstream of us.
+  if (_scopedLogger !== null) return _scopedLogger;
+  return logsApi.getLogger(REASONING_SCOPE_NAME);
 }
 
 /**
@@ -83,19 +112,41 @@ function wrapStream(factory: () => MessageStream): MessageStream {
   const logger = getLogger();
 
   async function* iterate(): AsyncGenerator<unknown, void, unknown> {
-    for await (const item of source) {
-      try {
-        observeAssistantMessage(item, (attrs) => {
-          logger.emit({
-            severityNumber: SeverityNumber.INFO,
-            body: REASONING_EVENT_NAME,
-            attributes: { ...attrs, 'event.name': REASONING_EVENT_NAME },
-          });
-        });
-      } catch {
-        // Never let observer failures break user iteration.
+    let stickySessionId: string | undefined;
+    try {
+      for await (const item of source) {
+        try {
+          stickySessionId = observeAssistantMessage(
+            item,
+            (attrs) => {
+              logger.emit({
+                severityNumber: SeverityNumber.INFO,
+                body: REASONING_EVENT_NAME,
+                attributes: { ...attrs, 'event.name': REASONING_EVENT_NAME },
+              });
+            },
+            stickySessionId,
+          );
+        } catch {
+          // Never let observer failures break user iteration.
+        }
+        yield item;
       }
-      yield item;
+    } finally {
+      // Propagate early-termination (consumer ``break`` / ``throw``) to
+      // the underlying source so it can release any resources it holds.
+      // TS runtime already calls ``source.return()`` on the outer
+      // generator when the wrapped iterator is torn down, but an
+      // explicit ``source.return?.()`` guards against sources that
+      // only expose ``return`` via their async-iterator protocol.
+      const sourceIter = (source as { return?: () => Promise<unknown> }).return;
+      if (typeof sourceIter === 'function') {
+        try {
+          await sourceIter.call(source);
+        } catch {
+          // Defensive — source cleanup failures are not user-visible.
+        }
+      }
     }
   }
 
@@ -130,8 +181,17 @@ export function installReasoningObserver<T extends ClaudeAgentSDKModule>(sdk: T)
   }
 
   const origQuery = sdk.query.bind(sdk);
-  (sdk as unknown as Record<string, unknown>).query = (args: QueryArgsLike): MessageStream => {
-    return wrapStream(() => origQuery(args));
+  // Use rest args so a future SDK that accepts multiple positionals
+  // (Python's ``ClaudeSDKClient.query(prompt, session_id)`` precedent)
+  // doesn't silently lose arguments to the wrapper. TS
+  // ``ClaudeAgentSDKModule.query`` is typed single-arg but we forward
+  // via an ``unknown[]`` rest to survive SDK evolution.
+  (sdk as unknown as Record<string, unknown>).query = (
+    ...args: unknown[]
+  ): MessageStream => {
+    return wrapStream(() =>
+      (origQuery as unknown as (...a: unknown[]) => MessageStream)(...args),
+    );
   };
 
   const OriginalClient: ClaudeSDKClientCtor | undefined = sdk.ClaudeSDKClient;

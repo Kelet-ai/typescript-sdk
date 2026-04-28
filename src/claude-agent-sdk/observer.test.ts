@@ -2,15 +2,24 @@
  * Unit tests for the slim ``kelet.reasoning`` observer.
  */
 
-import { describe, expect, test, beforeEach, mock } from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach, mock } from 'bun:test';
 import {
   observeAssistantMessage,
   REASONING_EVENT_NAME,
 } from './streamObserver';
 import {
   installReasoningObserver,
+  REASONING_SCOPE_NAME,
+  setReasoningLogger,
   type ClaudeAgentSDKModule,
 } from './index';
+// Top-level ESM import (not ``require()``) so this suite runs under
+// strict Node --experimental-vm-modules / tsx as well as Bun.
+import {
+  logs as logsApi,
+  type Logger,
+  type LoggerProvider as LoggerProviderApi,
+} from '@opentelemetry/api-logs';
 
 describe('observeAssistantMessage', () => {
   test('emits one attribute set per ThinkingBlock on a Py-shape message', () => {
@@ -134,15 +143,18 @@ describe('installReasoningObserver', () => {
 
   beforeEach(() => {
     loggerEmit = mock(() => {});
-    const fakeLogger = { emit: loggerEmit };
-    // Replace the global logger provider so getLogger(...) returns our fake.
-    // ``setGlobalLoggerProvider`` is a one-time setter — a second call silently
-    // no-ops — so we ``disable()`` first to clear the previous global.
-    const { logs: logsApi } = require('@opentelemetry/api-logs');
-    logsApi.disable();
-    logsApi.setGlobalLoggerProvider({
-      getLogger: () => fakeLogger,
-    });
+    const fakeLogger = { emit: loggerEmit } as unknown as Logger;
+    // Route emissions through the integration-scoped logger override
+    // rather than clobbering the OTel global LoggerProvider. That
+    // matches production wiring (``configure()`` calls
+    // ``setReasoningLogger(provider.getLogger(...))``) and keeps the
+    // global slot clean so host apps aren't affected by test state.
+    setReasoningLogger(fakeLogger);
+  });
+
+  afterEach(() => {
+    // Clear the override so other suites fall back to the OTel default.
+    setReasoningLogger(null);
   });
 
   test('query() wrapper yields all messages + emits for ThinkingBlocks', async () => {
@@ -214,11 +226,7 @@ describe('installReasoningObserver', () => {
     loggerEmit = mock(() => {
       throw new Error('exporter down');
     });
-    const { logs: logsApi } = require('@opentelemetry/api-logs');
-    logsApi.disable();
-    logsApi.setGlobalLoggerProvider({
-      getLogger: () => ({ emit: loggerEmit }),
-    });
+    setReasoningLogger({ emit: loggerEmit } as unknown as Logger);
 
     const sdk = makeSdk([
       { type: 'assistant', content: [{ thinking: 'x' }] },
@@ -230,5 +238,144 @@ describe('installReasoningObserver', () => {
       received.push(msg);
     }
     expect(received).toHaveLength(1);
+  });
+
+  // ----- Finality gate: do not emit on partial/stream-delta messages ------
+
+  test('skips emission when msg.type is not "assistant"', async () => {
+    const sdk = makeSdk([
+      // Partial/delta types the CC SDK may yield while the final
+      // AssistantMessage is being assembled:
+      { type: 'partial_assistant', content: [{ thinking: 'streaming' }] },
+      { type: 'stream_event', content: [{ thinking: 'early' }] },
+      // Final consolidated assistant message — only this should emit.
+      {
+        type: 'assistant',
+        content: [{ thinking: 'final' }],
+        message_id: 'msg_1',
+      },
+    ]);
+    installReasoningObserver(sdk);
+
+    const drained: unknown[] = [];
+    for await (const msg of sdk.query({ prompt: 'p' })) {
+      drained.push(msg);
+    }
+    expect(drained).toHaveLength(3);
+    expect(loggerEmit).toHaveBeenCalledTimes(1);
+    const [attrs] = capturedAttrs(loggerEmit);
+    expect(attrs?.['reasoning.text']).toBe('final');
+  });
+
+  test('messages without a type field still emit (back-compat)', async () => {
+    // Older SDK shapes that only yield finalized envelopes (no type
+    // discriminator). We can't know whether they're partial so the
+    // observer defaults to "emit". The CC contract expected this.
+    const sdk = makeSdk([{ content: [{ thinking: 'no-type' }] }]);
+    installReasoningObserver(sdk);
+    for await (const _ of sdk.query({ prompt: 'p' })) {
+      // drain
+    }
+    expect(loggerEmit).toHaveBeenCalledTimes(1);
+  });
+
+  // ----- Sticky session_id across stream ---------------------------------
+
+  test('sticks session.id forward when a later msg drops it', async () => {
+    const sdk = makeSdk([
+      {
+        type: 'assistant',
+        content: [{ thinking: 'first' }],
+        session_id: 'sticky-sess',
+        message_id: 'm1',
+      },
+      // Second message has no session_id on the envelope; extractor
+      // would drop it if we didn't carry the sticky id forward.
+      {
+        type: 'assistant',
+        content: [{ thinking: 'second' }],
+        message_id: 'm2',
+      },
+    ]);
+    installReasoningObserver(sdk);
+    for await (const _ of sdk.query({ prompt: 'p' })) {
+      // drain
+    }
+    const attrs = capturedAttrs(loggerEmit);
+    expect(attrs[0]?.['session.id']).toBe('sticky-sess');
+    expect(attrs[1]?.['session.id']).toBe('sticky-sess');
+  });
+
+  // ----- Rest-args forwarding (TS reviewer #2) ---------------------------
+
+  test('query() wrapper forwards all positional args to the original', async () => {
+    const seen: unknown[][] = [];
+    const sdk: ClaudeAgentSDKModule = {
+      query: (...passthrough: unknown[]): AsyncIterable<unknown> & Record<string, unknown> => {
+        seen.push(passthrough);
+        const stream = (async function* () {
+          yield { type: 'assistant', content: [] };
+        })() as AsyncIterable<unknown> & Record<string, unknown>;
+        return stream;
+      },
+    };
+    installReasoningObserver(sdk);
+
+    // Call with two args — the wrapper must forward both, not just args[0].
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ret = (sdk.query as any)({ prompt: 'p' }, { extra: 'flag' });
+    for await (const _ of ret as AsyncIterable<unknown>) {
+      // drain
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual([{ prompt: 'p' }, { extra: 'flag' }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scope name + non-clobber contracts
+// ---------------------------------------------------------------------------
+
+describe('integration-scoped logger', () => {
+  test('REASONING_SCOPE_NAME starts with com.anthropic.claude_code', () => {
+    // Server-side /api/logs filter rejects records whose scope.name
+    // doesn't start with this prefix. Regression guard for PR #10 review
+    // Critical-equivalent in Python SDK PR #9.
+    expect(REASONING_SCOPE_NAME.startsWith('com.anthropic.claude_code')).toBe(true);
+  });
+
+  test('setReasoningLogger overrides global resolution, reset restores it', async () => {
+    const sentinel = { emit: mock(() => {}) } as unknown as Logger;
+    setReasoningLogger(sentinel);
+
+    const sdk: ClaudeAgentSDKModule = {
+      query: (): AsyncIterable<unknown> & Record<string, unknown> => {
+        const stream = (async function* () {
+          yield { type: 'assistant', content: [{ thinking: 't' }] };
+        })() as AsyncIterable<unknown> & Record<string, unknown>;
+        return stream;
+      },
+    };
+    installReasoningObserver(sdk);
+    for await (const _ of sdk.query({ prompt: 'p' })) {
+      // drain — should route through ``sentinel``
+    }
+    expect((sentinel as unknown as { emit: ReturnType<typeof mock> }).emit).toHaveBeenCalledTimes(1);
+
+    // Clear the override and ensure global fallback kicks in next time.
+    setReasoningLogger(null);
+    // No assertions on the fallback (no global provider wired here) —
+    // we're only asserting the override plumbing resets cleanly.
+  });
+
+  test('setReasoningLogger does NOT touch the OTel global LoggerProvider', () => {
+    const before = logsApi.getLoggerProvider() as LoggerProviderApi;
+    const sentinel = { emit: mock(() => {}) } as unknown as Logger;
+    setReasoningLogger(sentinel);
+    const after = logsApi.getLoggerProvider() as LoggerProviderApi;
+    // The setter works on a module-local reference, not on the global.
+    // Any host app logging pipeline stays intact.
+    expect(after).toBe(before);
+    setReasoningLogger(null);
   });
 });

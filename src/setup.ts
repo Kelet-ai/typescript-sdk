@@ -4,7 +4,6 @@
  */
 
 import { trace } from '@opentelemetry/api';
-import { logs as logsApi } from '@opentelemetry/api-logs';
 import {
   configure as setConfig,
   resolveConfig,
@@ -200,6 +199,20 @@ export function configure(options: ConfigureOptions = {}): void {
   // records to Kelet (Claude Code redacts thinking text in its native OTLP,
   // so observer-emitted events go through this side channel). Mirror the
   // trace exporter: same base URL, same auth, different path (``/api/logs``).
+  // Build an integration-scoped ``LoggerProvider`` for the reasoning
+  // observer. Previously ``configure()`` called
+  // ``logsApi.setGlobalLoggerProvider(_loggerProvider)`` which clobbered
+  // whatever the host app (Datadog, Sentry, Grafana, etc.) had already
+  // wired on the OTel global — the Kelet ingestion path never needed a
+  // global provider since the reasoning observer in
+  // ``src/claude-agent-sdk/index.ts`` can resolve its logger against a
+  // module-local reference.
+  //
+  // The global slot is left alone. Host apps that want Kelet reasoning
+  // logs to ALSO land in their provider can route them there by
+  // attaching an extra ``LogRecordProcessor`` to it upstream of
+  // ``configure()``; the Kelet-scoped provider is an additional sink,
+  // not a replacement.
   try {
     const logExporter = new OTLPLogExporter({
       url: `${config.apiUrl}/api/logs`,
@@ -216,8 +229,8 @@ export function configure(options: ConfigureOptions = {}): void {
       }),
     });
     _loggerProvider.addLogRecordProcessor(logProcessor);
-    logsApi.setGlobalLoggerProvider(_loggerProvider);
     _activeLogProcessors.push(logProcessor);
+    _wireReasoningLogger(_loggerProvider);
   } catch (err) {
     console.warn('[kelet] failed to install LoggerProvider:', err);
   }
@@ -229,9 +242,43 @@ export function configure(options: ConfigureOptions = {}): void {
 }
 
 /**
+ * Resolve a ``Logger`` under the Kelet CC scope against ``provider`` and
+ * register it with the reasoning observer so emissions go through the
+ * integration-scoped provider instead of the OTel global.
+ *
+ * This keeps the global slot available for host applications that wire
+ * their own logging pipelines (Datadog, Sentry, Grafana, etc.). Without
+ * this, ``logsApi.setGlobalLoggerProvider(kelet)`` would silently lose
+ * whatever provider the host installed.
+ */
+function _wireReasoningLogger(provider: LoggerProvider): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { REASONING_SCOPE_NAME, setReasoningLogger } = require('./claude-agent-sdk');
+    const scopedLogger = provider.getLogger(REASONING_SCOPE_NAME);
+    setReasoningLogger(scopedLogger);
+  } catch (err) {
+    // Don't break setup() — reasoning emissions will fall back to
+    // ``logsApi.getLogger(...)`` which resolves against the global
+    // provider (usually no-op in tests). Keep the error visible under
+    // ``KELET_DEBUG`` so the fallback isn't silent in development.
+    if (process.env.KELET_DEBUG) {
+      console.warn('[kelet] failed to wire scoped reasoning logger:', err);
+    }
+  }
+}
+
+/**
  * Best-effort auto-install of the ``kelet.reasoning`` observer on
- * ``@anthropic-ai/claude-agent-sdk`` if it's resolvable. Failure is swallowed
- * — the host app doesn't depend on the SDK being installed.
+ * ``@anthropic-ai/claude-agent-sdk`` if it's resolvable. Failure is
+ * swallowed — the host app doesn't depend on the SDK being installed.
+ *
+ * Note: ``require()`` inside ESM throws ``ERR_REQUIRE_ESM`` under strict
+ * Node resolution when the target module is ESM-only. The catch swallows
+ * that silently in production (graceful degradation: users call
+ * ``installReasoningObserver(sdk)`` explicitly instead), but we surface
+ * the error under ``KELET_DEBUG`` so the failure mode is visible when
+ * users debug why reasoning observability seemed to no-op.
  */
 function _autoInstallReasoningObserver(): void {
   try {
@@ -240,8 +287,15 @@ function _autoInstallReasoningObserver(): void {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { installReasoningObserver } = require('./claude-agent-sdk');
     installReasoningObserver(sdk);
-  } catch {
-    // claude-agent-sdk not installed, or installer failed — silent.
+  } catch (err) {
+    if (process.env.KELET_DEBUG) {
+      console.warn(
+        '[kelet] auto-install of reasoning observer skipped. Call ' +
+          'installReasoningObserver(sdk) explicitly if @anthropic-ai/claude-agent-sdk ' +
+          'is installed. Cause:',
+        err,
+      );
+    }
   }
 }
 
@@ -322,9 +376,23 @@ export function resetSetup(): void {
     _provider = undefined;
   }
   if (_loggerProvider) {
+    // Unregister the scoped reasoning logger so the observer falls back
+    // to the global provider on subsequent emits (usually no-op post-
+    // shutdown, which is what we want).
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { setReasoningLogger } = require('./claude-agent-sdk');
+      setReasoningLogger(null);
+    } catch {
+      // claude-agent-sdk entrypoint may not be importable in all envs
+      // (e.g. during ``shutdown()`` after a failed ``configure()``).
+    }
     void _loggerProvider.shutdown();
     _loggerProvider = undefined;
   }
   trace.disable();
-  logsApi.disable();
+  // NOTE: we deliberately DO NOT call ``logsApi.disable()``. That
+  // resets the OTel global LoggerProvider to no-op, which would
+  // clobber whatever the host app had wired there. The Kelet SDK
+  // never set the global, so there's nothing for us to reset.
 }

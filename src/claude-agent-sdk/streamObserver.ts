@@ -74,23 +74,50 @@ export type EmitReasoning = (attributes: Record<string, string>) => void;
  * @param emit Callback invoked once per thinking block with the attribute
  *   map to attach to the emitted log record.
  */
-export function observeAssistantMessage(msg: unknown, emit: EmitReasoning): void {
-  if (typeof msg !== 'object' || msg === null) return;
+export function observeAssistantMessage(
+  msg: unknown,
+  emit: EmitReasoning,
+  stickySessionId?: string,
+): string | undefined {
+  if (typeof msg !== 'object' || msg === null) return undefined;
 
   const candidate = msg as AssistantMessageLike;
+
+  // Finality gate: only emit for *finalized* assistant messages. The CC
+  // SDK yields ``PartialAssistantMessage`` (type="partial_assistant") /
+  // ``StreamEvent`` deltas before the consolidated ``AssistantMessage``.
+  // Both shapes can carry a ``thinking`` string under ``content[]`` as
+  // the stream accumulates — emitting on deltas would produce N
+  // duplicate reasoning records keyed on the same ``reasoning.message_id``
+  // which the server-side extractor would collapse via last-write-wins.
+  //
+  // The SDK sets ``type = 'assistant'`` on finalized envelopes. Any
+  // other value (``'partial_assistant'``, ``'user'``, ``'system'``,
+  // ``'result'``, etc.) is skipped. Messages without a ``type`` field
+  // pass through for back-compat with older SDK shapes that only
+  // yielded finalized envelopes.
+  if (typeof candidate.type === 'string' && candidate.type !== 'assistant') {
+    return stickySessionId;
+  }
+
   const content = Array.isArray(candidate.content)
     ? candidate.content
     : Array.isArray(candidate.message?.content)
-      ? candidate.message!.content
+      ? (candidate.message as { content: unknown[] }).content
       : null;
-  if (!content) return;
+  if (!content) return stickySessionId;
 
   // ``message_id`` is optional per contract — include it only when the
   // message actually carries one (matches the Python wrapper behaviour).
   // Py SDK exposes ``message_id`` on the AssistantMessage envelope;
   // TS SDK puts the Anthropic API id on ``message.id``.
   const messageId = candidate.message_id ?? candidate.message?.id;
-  const sessionId = candidate.session_id ?? candidate.sessionId;
+  // ``session.id`` is required by the server's ``/api/logs`` router.
+  // Early-stream messages can arrive before the SDK populates one on
+  // the envelope, so we fall back to a sticky id remembered from an
+  // earlier message in the same stream.
+  const currentSessionId = candidate.session_id ?? candidate.sessionId;
+  const sessionId = currentSessionId ?? stickySessionId;
 
   for (const block of content) {
     if (!isThinkingBlock(block)) continue;
@@ -102,4 +129,7 @@ export function observeAssistantMessage(msg: unknown, emit: EmitReasoning): void
     if (sessionId) attrs['session.id'] = sessionId;
     emit(attrs);
   }
+
+  // Let callers thread an updated sticky id through the iteration.
+  return currentSessionId ?? stickySessionId;
 }
