@@ -241,6 +241,14 @@ Works with any OpenTelemetry-compatible AI framework out of the box.
 
 ---
 
+## Reasoning Capture for Claude Agent SDK
+
+Claude Code redacts reasoning (`thinking`) text in its native OTLP log records. Kelet's `@anthropic-ai/claude-agent-sdk` integration observes the SDK's message stream and emits `kelet.reasoning` log records with the full thinking content so Kelet's server can attach it back to the completion.
+
+The integration is installed automatically by `configure()` when `@anthropic-ai/claude-agent-sdk` is resolvable. See [docs/claude-agent-sdk.md](./docs/claude-agent-sdk.md) for manual install, the contract fields (`body`, `reasoning.text`, `reasoning.message_id`, `session.id`), and Next.js / ESM caveats.
+
+---
+
 ## Reasoning Capture for Vercel AI SDK
 
 Vercel AI SDK's telemetry currently doesn't include reasoning/thinking content in spans ([vercel/ai#8823](https://github.com/vercel/ai/issues/8823)). Until an official fix, you can use this hook to capture reasoning from models that support extended thinking (like Claude with `reasoningConfig`).

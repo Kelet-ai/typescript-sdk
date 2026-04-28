@@ -110,4 +110,4 @@ Workarounds until Anthropic ships `ClaudeSDKClient` in the TS SDK:
 
 ## See also
 
-- [Contract spec](./claude-agent-sdk-contract.md) — exact attribute keys + invariants.
+- The Kelet Claude Agent SDK integration docs, above, describe everything public consumers need. Exact server-side attribute contracts are implementation details of the Kelet ingestion pipeline.

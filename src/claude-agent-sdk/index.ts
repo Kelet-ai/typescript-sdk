@@ -32,6 +32,13 @@
 
 import type { Logger } from '@opentelemetry/api-logs';
 import { logs as logsApi, SeverityNumber } from '@opentelemetry/api-logs';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
+import {
+  BatchLogRecordProcessor,
+  LoggerProvider,
+  type LogRecordProcessor,
+} from '@opentelemetry/sdk-logs';
+import type { Resource } from '@opentelemetry/resources';
 import { observeAssistantMessage, REASONING_EVENT_NAME } from './streamObserver';
 
 /**
@@ -50,12 +57,57 @@ let _scopedLogger: Logger | null = null;
 
 /**
  * Register a ``Logger`` resolved from an integration-scoped provider.
- * Called by ``configure()`` when it builds its own ``LoggerProvider``
- * rather than installing one on the OTel global. No-op for unit tests
- * that wire their own ``logsApi.setGlobalLoggerProvider``.
+ * Called by ``installReasoningObserver`` (or ``configure()`` indirectly
+ * through it) when it provisions a dedicated ``LoggerProvider``. No-op
+ * for unit tests that wire their own ``logsApi.setGlobalLoggerProvider``.
  */
 export function setReasoningLogger(logger: Logger | null): void {
   _scopedLogger = logger;
+}
+
+/**
+ * Build + own an OTLP ``LoggerProvider`` that exports the Kelet
+ * ``kelet.reasoning`` records to the server's ``/api/logs`` endpoint.
+ *
+ * The provider is scoped to the reasoning observer — it is NOT
+ * registered as the OTel global, so host applications that wire their
+ * own logging pipelines (Datadog, Sentry, Grafana, etc.) are left
+ * alone. Callers are expected to pass the returned
+ * ``LogRecordProcessor`` to their own shutdown drain (e.g.
+ * ``_activeLogProcessors``) so exporter flushes happen at process exit.
+ *
+ * This helper intentionally lives in the ``claude-agent-sdk`` entry
+ * point rather than in ``setup.ts`` so that a host that imports the
+ * Kelet core SDK but doesn't use Claude Agent SDK never triggers the
+ * OTLP logs exporter setup at all.
+ */
+export interface BuildKeletLoggerProviderOptions {
+  apiUrl: string;
+  apiKey: string;
+  project: string;
+  /** Shared Resource from ``setup.ts`` so trace + log providers don't drift. */
+  resource: Resource;
+}
+
+export interface KeletLoggerProviderHandle {
+  provider: LoggerProvider;
+  processor: LogRecordProcessor;
+}
+
+export function buildKeletLoggerProvider(
+  options: BuildKeletLoggerProviderOptions,
+): KeletLoggerProviderHandle {
+  const exporter = new OTLPLogExporter({
+    url: `${options.apiUrl}/api/logs`,
+    headers: {
+      Authorization: options.apiKey,
+      'X-Kelet-Project': options.project,
+    },
+  });
+  const processor = new BatchLogRecordProcessor(exporter);
+  const provider = new LoggerProvider({ resource: options.resource });
+  provider.addLogRecordProcessor(processor);
+  return { provider, processor };
 }
 
 /** Minimal shape of ``query()`` arguments. */
