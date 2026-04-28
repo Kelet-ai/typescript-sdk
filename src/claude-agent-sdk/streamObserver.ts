@@ -79,25 +79,34 @@ export function observeAssistantMessage(
   emit: EmitReasoning,
   stickySessionId?: string,
 ): string | undefined {
-  if (typeof msg !== 'object' || msg === null) return undefined;
+  if (typeof msg !== 'object' || msg === null) return stickySessionId;
 
   const candidate = msg as AssistantMessageLike;
 
-  // Finality gate: only emit for *finalized* assistant messages. The CC
-  // SDK yields ``PartialAssistantMessage`` (type="partial_assistant") /
-  // ``StreamEvent`` deltas before the consolidated ``AssistantMessage``.
-  // Both shapes can carry a ``thinking`` string under ``content[]`` as
-  // the stream accumulates — emitting on deltas would produce N
-  // duplicate reasoning records keyed on the same ``reasoning.message_id``
-  // which the server-side extractor would collapse via last-write-wins.
+  // Capture sticky metadata BEFORE the finality gate. ``SystemMessage``
+  // (type="system") is typically the FIRST envelope in a CC stream and
+  // carries the session envelope's ``session_id`` — we'd drop every
+  // subsequent sticky reference if we short-circuited on type. Same
+  // reasoning for ``UserMessage`` / ``PartialAssistantMessage`` /
+  // ``StreamEvent``: any of them can surface ``session_id`` /
+  // ``sessionId`` before the first finalized assistant message arrives.
+  const currentSessionId = candidate.session_id ?? candidate.sessionId;
+  const nextStickySessionId = currentSessionId ?? stickySessionId;
+
+  // Finality gate: only EMIT reasoning records for finalized assistant
+  // messages. The CC SDK yields ``PartialAssistantMessage`` (type=
+  // "partial_assistant") / ``StreamEvent`` deltas before the
+  // consolidated ``AssistantMessage``. Both shapes can carry a
+  // ``thinking`` string under ``content[]`` as the stream accumulates
+  // — emitting on deltas would produce N duplicate reasoning records
+  // keyed on the same ``reasoning.message_id`` which the server-side
+  // extractor collapses via last-write-wins.
   //
-  // The SDK sets ``type = 'assistant'`` on finalized envelopes. Any
-  // other value (``'partial_assistant'``, ``'user'``, ``'system'``,
-  // ``'result'``, etc.) is skipped. Messages without a ``type`` field
-  // pass through for back-compat with older SDK shapes that only
-  // yielded finalized envelopes.
+  // The SDK sets ``type = 'assistant'`` on finalized envelopes.
+  // Messages without a ``type`` field pass through for back-compat
+  // with older SDK shapes that only yielded finalized envelopes.
   if (typeof candidate.type === 'string' && candidate.type !== 'assistant') {
-    return stickySessionId;
+    return nextStickySessionId;
   }
 
   const content = Array.isArray(candidate.content)
@@ -105,7 +114,7 @@ export function observeAssistantMessage(
     : Array.isArray(candidate.message?.content)
       ? (candidate.message as { content: unknown[] }).content
       : null;
-  if (!content) return stickySessionId;
+  if (!content) return nextStickySessionId;
 
   // ``message_id`` is optional per contract — include it only when the
   // message actually carries one (matches the Python wrapper behaviour).
@@ -113,11 +122,9 @@ export function observeAssistantMessage(
   // TS SDK puts the Anthropic API id on ``message.id``.
   const messageId = candidate.message_id ?? candidate.message?.id;
   // ``session.id`` is required by the server's ``/api/logs`` router.
-  // Early-stream messages can arrive before the SDK populates one on
-  // the envelope, so we fall back to a sticky id remembered from an
-  // earlier message in the same stream.
-  const currentSessionId = candidate.session_id ?? candidate.sessionId;
-  const sessionId = currentSessionId ?? stickySessionId;
+  // Fall back to the sticky id captured above if the current message's
+  // own envelope didn't populate one.
+  const sessionId = nextStickySessionId;
 
   for (const block of content) {
     if (!isThinkingBlock(block)) continue;
@@ -131,5 +138,5 @@ export function observeAssistantMessage(
   }
 
   // Let callers thread an updated sticky id through the iteration.
-  return currentSessionId ?? stickySessionId;
+  return nextStickySessionId;
 }

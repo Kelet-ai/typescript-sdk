@@ -4,6 +4,17 @@
  */
 
 import { trace } from '@opentelemetry/api';
+// Static import of our own sibling module — always ESM-resolvable — so
+// ``_autoInstallReasoningObserver`` doesn't reach for ``require()`` on
+// our own code. The third-party ``@anthropic-ai/claude-agent-sdk``
+// remains an optional dynamic lookup (see ``_autoInstallReasoningObserver``).
+import {
+  buildKeletLoggerProvider,
+  installReasoningObserver,
+  REASONING_SCOPE_NAME,
+  setReasoningLogger,
+  type ClaudeAgentSDKModule,
+} from './claude-agent-sdk';
 import {
   configure as setConfig,
   resolveConfig,
@@ -237,58 +248,90 @@ export function configure(options: ConfigureOptions = {}): void {
  * resources. Host-app log pipelines are left alone unconditionally —
  * Kelet never touches ``logsApi.setGlobalLoggerProvider``.
  *
- * ``require()`` inside ESM throws ``ERR_REQUIRE_ESM`` under strict Node
- * resolution when the target module is ESM-only. The catch swallows that
- * silently in production (graceful degradation: users can call
- * ``installReasoningObserver(sdk)`` and ``setReasoningLogger(...)``
- * explicitly), but we surface the error under ``KELET_DEBUG`` so the
- * failure mode is visible when users debug why reasoning observability
- * seemed to no-op.
+ * ESM safety
+ * ----------
+ * We can't call ``require('@anthropic-ai/claude-agent-sdk')`` under
+ * strict Node ESM (throws ``ERR_REQUIRE_ESM``). Node's CJS-compat
+ * ``createRequire`` fails the same way on ESM-only packages. Use a
+ * dynamic ``import()`` instead, and kick it off fire-and-forget so
+ * ``configure()`` stays synchronous for the rest of its body.
+ *
+ * If ``configure()`` runs before the host's ``claude-agent-sdk`` module
+ * is loaded, users can still install the observer + logger explicitly
+ * at any later point:
+ *
+ * ```ts
+ *   import * as sdk from '@anthropic-ai/claude-agent-sdk';
+ *   import {
+ *     installReasoningObserver,
+ *     buildKeletLoggerProvider,
+ *     setReasoningLogger,
+ *     REASONING_SCOPE_NAME,
+ *   } from 'kelet/claude-agent-sdk';
+ *   installReasoningObserver(sdk);
+ * ```
+ *
+ * ``docs/claude-agent-sdk.md`` spells out this manual recipe alongside
+ * the Next.js / ESM caveats.
  */
 function _autoInstallReasoningObserver(
   config: KeletConfig,
   resource: Resource,
 ): void {
+  // Our own sibling module is imported statically at the top of the
+  // file — ESM resolves it regardless of host runtime semantics. We
+  // only need the dynamic lookup for the optional third-party SDK.
+
+  // Build + own the LoggerProvider *only* for the CC integration so
+  // hosts that don't use Claude Agent SDK don't pay for an OTLP log
+  // exporter they never use. This happens unconditionally because the
+  // resolution of ``@anthropic-ai/claude-agent-sdk`` below is async —
+  // we still want the provider ready by the time the user imports the
+  // SDK and calls ``installReasoningObserver(sdk)`` manually if the
+  // dynamic import races their first call.
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const sdk = require('@anthropic-ai/claude-agent-sdk');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const claudeAgentSdk = require('./claude-agent-sdk');
-
-    // Build + own the LoggerProvider *only* for the CC integration —
-    // not in setup() — so hosts that don't use Claude Agent SDK don't
-    // pay for an OTLP log exporter they never use.
-    try {
-      const { provider, processor } = claudeAgentSdk.buildKeletLoggerProvider({
-        apiUrl: config.apiUrl,
-        apiKey: config.apiKey,
-        project: config.project,
-        resource,
-      });
-      _loggerProvider = provider;
-      _activeLogProcessors.push(processor);
-      const scopedLogger = provider.getLogger(claudeAgentSdk.REASONING_SCOPE_NAME);
-      claudeAgentSdk.setReasoningLogger(scopedLogger);
-    } catch (err) {
-      if (process.env.KELET_DEBUG) {
-        console.warn(
-          '[kelet] failed to build Kelet LoggerProvider for claude-agent-sdk:',
-          err,
-        );
-      }
-    }
-
-    claudeAgentSdk.installReasoningObserver(sdk);
+    const { provider, processor } = buildKeletLoggerProvider({
+      apiUrl: config.apiUrl,
+      apiKey: config.apiKey,
+      project: config.project,
+      resource,
+    });
+    _loggerProvider = provider;
+    _activeLogProcessors.push(processor);
+    setReasoningLogger(provider.getLogger(REASONING_SCOPE_NAME));
   } catch (err) {
     if (process.env.KELET_DEBUG) {
       console.warn(
-        '[kelet] auto-install of reasoning observer skipped. Call ' +
-          'installReasoningObserver(sdk) explicitly if @anthropic-ai/claude-agent-sdk ' +
-          'is installed. Cause:',
+        '[kelet] failed to build Kelet LoggerProvider for claude-agent-sdk:',
         err,
       );
     }
   }
+
+  // Fire-and-forget dynamic import. ESM-safe under Node strict mode and
+  // under Bun; browser bundlers tree-shake it when the host doesn't
+  // depend on ``@anthropic-ai/claude-agent-sdk``.
+  //
+  // ``@anthropic-ai/claude-agent-sdk`` is an OPTIONAL peer dep — Kelet
+  // ships without it and TS can't resolve the type declarations during
+  // ``tsc --noEmit``. The ``@ts-expect-error`` silences the missing-
+  // module diagnostic without suppressing other errors in the block.
+  // The runtime handling is the Promise catch below.
+  // @ts-expect-error — optional peer dep, may be absent at build time.
+  void import('@anthropic-ai/claude-agent-sdk')
+    .then((sdk: unknown) => {
+      installReasoningObserver(sdk as ClaudeAgentSDKModule);
+    })
+    .catch((err: unknown) => {
+      if (process.env.KELET_DEBUG) {
+        console.warn(
+          '[kelet] auto-install of reasoning observer skipped. Call ' +
+            'installReasoningObserver(sdk) explicitly if @anthropic-ai/claude-agent-sdk ' +
+            'is installed. Cause:',
+          err,
+        );
+      }
+    });
 }
 
 /**
