@@ -211,6 +211,22 @@ await agenticSession({ sessionId: 'sess-123', userId: 'user-1' }, async () => {
 
 `configure()` automatically wires a `KeletSpanProcessor` that stamps `kelet.project`, `gen_ai.conversation.id`, and `user.id` on every span. Inside `agenticSession`, `signal()` automatically picks up the `sessionId` — no need to pass it explicitly.
 
+### Using with Temporal
+
+If your agents run on [Temporal](https://temporal.io), register `KeletPlugin` once on the client — workers inherit automatically:
+
+```ts
+import { KeletPlugin } from 'kelet/temporal';
+import { Client } from '@temporalio/client';
+
+const plugin = new KeletPlugin({ otelPluginOptions: { resource, spanProcessor } });
+const client = new Client({ plugins: [plugin] });
+```
+
+Session context flows through Temporal headers across workflows, child workflows, and activities. Peer deps: `@temporalio/plugin`, `@temporalio/interceptors-opentelemetry`.
+
+📖 Full setup, options, plugin ordering: **[docs.kelet.ai/integrations/temporal](https://docs.kelet.ai/docs/integrations/temporal/)**
+
 ### Easy Feedback UI for React
 
 Building a React frontend? Use the [Kelet Feedback UI](https://github.com/kelet-ai/feedback-ui) component for instant implicit and explicit feedback collection.
