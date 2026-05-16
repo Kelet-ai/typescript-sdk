@@ -35,13 +35,18 @@ function _resolveStartPayload(
   const fromContext = _currentSessionPayload();
   if (fromContext) return fromContext;
   if (autoSession === false) return undefined;
+
+  // ``WorkflowStartInput.options.workflowId`` is optional — when callers omit
+  // it, Temporal generates one server-side. We can't derive on the client in
+  // that case, so skip and let the worker-side ``activityAutoSession`` (if
+  // configured) backstop.
+  const wfId = input.options.workflowId;
+  if (!wfId) return undefined;
+
   const derived =
     autoSession === true
-      ? deriveSessionId(input.options.workflowId)
-      : autoSession({
-          workflowType: input.workflowType,
-          workflowId: input.options.workflowId,
-        });
+      ? deriveSessionId(wfId)
+      : autoSession({ workflowType: input.workflowType, workflowId: wfId });
   return derived ? { sessionId: derived } : undefined;
 }
 

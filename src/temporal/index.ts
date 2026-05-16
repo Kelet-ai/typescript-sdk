@@ -27,6 +27,7 @@
  * ```
  */
 
+import { fileURLToPath } from 'node:url';
 import { SimplePlugin } from '@temporalio/plugin';
 import type {
   ClientInterceptors,
@@ -110,7 +111,14 @@ export class KeletPlugin extends SimplePlugin {
       );
     }
 
-    const workflowInterceptorsPath = require.resolve('./workflow-interceptors');
+    // ESM-safe sibling resolution. ``kelet`` ships as `"type": "module"`,
+    // so ``require.resolve`` is unavailable at runtime. The bundled output
+    // emits ``./workflow-interceptors.js`` next to ``./index.js``; ``new URL``
+    // joins them relative to this module's location regardless of where the
+    // package gets installed.
+    const workflowInterceptorsPath = fileURLToPath(
+      new URL('./workflow-interceptors.js', import.meta.url),
+    );
 
     super({
       name: 'kelet.KeletPlugin',

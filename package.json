@@ -42,7 +42,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "build": "bun run build:js && bun run build:types",
-    "build:js": "bun build ./src/index.ts ./src/aisdk.ts ./src/reasoning/register.ts ./src/claude-agent-sdk/index.ts ./src/temporal/index.ts ./src/temporal/workflow-interceptors.ts --outdir ./dist --target node --format esm --splitting",
+    "build:js": "bun build ./src/index.ts ./src/aisdk.ts ./src/reasoning/register.ts ./src/claude-agent-sdk/index.ts ./src/temporal/index.ts ./src/temporal/workflow-interceptors.ts --outdir ./dist --target node --format esm --splitting --external '@temporalio/*'",
     "build:types": "tsc --project tsconfig.build.json",
     "prepublishOnly": "bun run build",
     "verify-build": "bun test ./.github/build-verification.test.ts",

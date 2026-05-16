@@ -192,6 +192,23 @@ describe('A. Client outbound', () => {
     expect(_decodePayloadString(forwarded.headers, SESSION_HEADER)).toBe('derived-wf-id-99');
   });
 
+  test('A5b: autoSession=true with missing workflowId does not throw — server-generated IDs are common', async () => {
+    // Temporal's WorkflowStartInput.options.workflowId is optional. When the
+    // user calls client.start({ workflowType: 'X' }) without an explicit ID,
+    // Temporal server generates one. We can't derive client-side, so skip.
+    const client = buildClientInterceptor(true);
+    const next = mock(async (_input: unknown) => 'wf-run-id');
+    await expect(
+      client.start!(
+        // workflowId is intentionally undefined here.
+        { workflowType: 'MyWf', headers: {}, options: {} } as never,
+        next,
+      ),
+    ).resolves.toBe('wf-run-id');
+    const forwarded = next.mock.calls[0]![0] as { headers: Headers };
+    expect(SESSION_HEADER in forwarded.headers).toBe(false);
+  });
+
   test('A6: signal stamps header from agenticSession', async () => {
     const client = buildClientInterceptor(false);
     const next = mock(async (_input: unknown) => undefined);
