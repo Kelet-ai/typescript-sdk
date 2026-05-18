@@ -213,14 +213,16 @@ await agenticSession({ sessionId: 'sess-123', userId: 'user-1' }, async () => {
 
 ### Using with Temporal
 
-If your agents run on [Temporal](https://temporal.io), register `KeletPlugin` once on the client — workers inherit automatically:
+If your agents run on [Temporal](https://temporal.io), register `KeletPlugin` on both the `Client` and `Worker` (the TS SDK doesn't auto-propagate plugins from client to worker — Python does):
 
 ```ts
 import { KeletPlugin } from 'kelet/temporal';
 import { Client } from '@temporalio/client';
+import { Worker } from '@temporalio/worker';
 
 const plugin = new KeletPlugin({ otelPluginOptions: { resource, spanProcessor } });
 const client = new Client({ plugins: [plugin] });
+const worker = await Worker.create({ /* ... */, plugins: [plugin] });
 ```
 
 Session context flows through Temporal headers across workflows, child workflows, and activities. Peer deps: `@temporalio/plugin`, `@temporalio/interceptors-opentelemetry`.

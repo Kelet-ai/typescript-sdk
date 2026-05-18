@@ -13,6 +13,7 @@ import type {
   WorkflowQueryInput,
   Next,
 } from '@temporalio/client';
+import type { Headers } from '@temporalio/common';
 
 import { getMetadata, getSessionId, getUserId } from '../context';
 import { deriveSessionId, inject, type SessionPayload } from './headers';
@@ -50,6 +51,18 @@ function _resolveStartPayload(
   return derived ? { sessionId: derived } : undefined;
 }
 
+/** Stamp the current ``agenticSession`` payload into outbound headers and
+ * delegate to ``next``. Shared by ``signal`` and ``query`` (``start`` uses
+ * a different resolver because it also handles the ``autoSession`` knob).
+ */
+function _stampCurrentSession<I extends { headers: Headers }, R>(
+  input: I,
+  next: (input: I) => R,
+): R {
+  const payload = _currentSessionPayload();
+  return next({ ...input, headers: inject(input.headers, payload) });
+}
+
 /** Build the WorkflowClientInterceptor for {@link KeletPlugin}. Stateless
  * apart from the autoSession config captured in the closure.
  */
@@ -62,12 +75,10 @@ export function buildClientInterceptor(
       return next({ ...input, headers: inject(input.headers, payload) });
     },
     async signal(input: WorkflowSignalInput, next: Next<WorkflowClientInterceptor, 'signal'>) {
-      const payload = _currentSessionPayload();
-      return next({ ...input, headers: inject(input.headers, payload) });
+      return _stampCurrentSession(input, next);
     },
     async query(input: WorkflowQueryInput, next: Next<WorkflowClientInterceptor, 'query'>) {
-      const payload = _currentSessionPayload();
-      return next({ ...input, headers: inject(input.headers, payload) });
+      return _stampCurrentSession(input, next);
     },
   };
 }
