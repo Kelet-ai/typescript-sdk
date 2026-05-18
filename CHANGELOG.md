@@ -1,3 +1,12 @@
+# [0.7.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.6.0...v0.7.0) (2026-05-18)
+
+
+### Features
+
+* **temporal:** KeletPlugin for one-line Temporal integration ([65ec131](https://github.com/kelet-ai/typescript-sdk/commit/65ec13136a4e6838e903e947cae3ae2036964765))
+
+
+
 # [0.6.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.5.3...v0.6.0) (2026-04-28)
 
 
@@ -45,15 +54,6 @@
 * exclude @types/bun from build tsconfig to fix rootDir error ([ab91456](https://github.com/kelet-ai/typescript-sdk/commit/ab9145688249fe0c88e5be559e78e75162da8ffb))
 * **KEL-374:** add project to KeletExporter tests missing project ([5f7aac3](https://github.com/kelet-ai/typescript-sdk/commit/5f7aac3cf973a04a11652ec2092d594a805450cc))
 * **KEL-374:** remove default project fallback, fail-fast on missing project ([936d899](https://github.com/kelet-ai/typescript-sdk/commit/936d8995c4a78b933df1f613109ef31b906fe7b6))
-
-
-
-# [0.5.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.4.0...v0.5.0) (2026-03-23)
-
-
-### Features
-
-* **KEL-343:** add spanProcessor option to configure() ([2dd31a6](https://github.com/kelet-ai/typescript-sdk/commit/2dd31a6216ae7daff86f3bcc0c7ef3592d00f0f3))
 
 
 
