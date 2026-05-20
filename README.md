@@ -333,6 +333,85 @@ npx tsx --import kelet/reasoning/register app.ts
 
 ---
 
+## Claude Agent SDK
+
+When you use [`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), Kelet automatically wires the bundled `claude` subprocess to send OTLP traces, logs, and metrics to your Kelet project — plus captures redacted thinking/reasoning blocks as `kelet.reasoning` log records.
+
+### Quick start (no code changes)
+
+`kelet.configure()` populates the seven `CLAUDE_CODE_*` / `OTEL_EXPORTER_OTLP_*` env vars on `process.env` if they're not already set. The spawned `claude` subprocess inherits them automatically:
+
+```typescript
+import { configure } from 'kelet';
+
+configure({
+  apiKey: process.env.KELET_API_KEY,
+  project: 'my-project',
+});
+
+// Use the SDK normally — no other changes needed.
+import { query } from '@anthropic-ai/claude-agent-sdk';
+for await (const msg of query({ prompt: 'hello' })) { /* ... */ }
+```
+
+> **Note:** Node ESM and Bun freeze module namespace bindings, so post-import patching cannot wrap destructured imports like `import { query } from '@anthropic-ai/claude-agent-sdk'`. Layer A (`process.env` injection) covers the common case anyway. If you also pass a custom `options.env` (which would otherwise wipe `process.env` from the spawned subprocess), use the loader or shim below.
+
+### Loader (Node.js)
+
+```bash
+node --import kelet/claude-agent-sdk/register app.js
+npx tsx --import kelet/claude-agent-sdk/register app.ts
+```
+
+The loader hooks `@anthropic-ai/claude-agent-sdk` exports at module-load time so destructured imports get the wrapped versions.
+
+### Drop-in shim (Bun and elsewhere)
+
+Bun ignores `--import` loader hooks. Change one import:
+
+```typescript
+// Before
+import { query, ClaudeSDKClient } from '@anthropic-ai/claude-agent-sdk';
+
+// After
+import { query, ClaudeSDKClient } from 'kelet/claude-agent-sdk/shim';
+```
+
+### Conflict handling
+
+OTLP env vars are single-valued per signal — the SDK can only point at one backend at a time. If `process.env` already has `OTEL_EXPORTER_OTLP_ENDPOINT` (or any of the other six) set for a different backend (Sentry, Datadog, custom collector), Kelet **does not** override the value. CC telemetry will continue to route to that backend, and a one-shot WARNING is logged.
+
+To route CC telemetry to Kelet anyway:
+
+- Unset the conflicting env vars before calling `configure()`, or
+- Pass per-call `options.env` to `ClaudeAgentOptions` — the loader/shim merge Kelet's keys in *set-if-missing*, so user keys still win.
+
+### Opt out
+
+Pass `injectCcTelemetry: false` to disable env injection entirely:
+
+```typescript
+configure({
+  apiKey: process.env.KELET_API_KEY,
+  project: 'my-project',
+  injectCcTelemetry: false,
+});
+```
+
+If you opt out and don't set `CLAUDE_CODE_ENABLE_TELEMETRY=1` yourself, the SDK emits a one-shot informational warning so you don't lose CC telemetry by accident.
+
+### Reasoning capture (optional)
+
+`kelet.reasoning` log records are emitted via `@opentelemetry/sdk-logs` + `@opentelemetry/exporter-logs-otlp-http`. They're optional peer deps; install them if you want reasoning capture:
+
+```bash
+npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/api-logs
+```
+
+Without these, env injection still works — only thinking/reasoning capture is disabled.
+
+---
+
 ## Configuration
 
 Set via environment variables:

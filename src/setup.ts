@@ -67,6 +67,20 @@ export interface ConfigureOptions extends KeletConfigOptions {
    * @default false
    */
   strict?: boolean;
+  /**
+   * Auto-inject the seven Claude Code OTLP env vars (CLAUDE_CODE_ENABLE_TELEMETRY,
+   * OTEL_LOGS_EXPORTER, OTEL_METRICS_EXPORTER, OTEL_TRACES_EXPORTER,
+   * OTEL_EXPORTER_OTLP_PROTOCOL, OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_HEADERS)
+   * so the spawned `claude` subprocess routes telemetry to Kelet.
+   *
+   * Set `false` to opt out — useful when the host process already routes CC
+   * telemetry to a different OTLP backend (Sentry, Datadog, custom collector)
+   * and Kelet should NOT redirect it. Existing process.env values are never
+   * overridden either way; opting out only suppresses the deferred-warning log.
+   *
+   * @default true
+   */
+  injectCcTelemetry?: boolean;
 }
 
 let _configured = false;
@@ -157,7 +171,13 @@ function _registerExitHooks(): void {
  * ```
  */
 export function configure(options: ConfigureOptions = {}): void {
-  const { tracerProvider, spanProcessor, strict = false, ...configOptions } = options;
+  const {
+    tracerProvider,
+    spanProcessor,
+    strict = false,
+    injectCcTelemetry = true,
+    ...configOptions
+  } = options;
 
   // Always store partial config (for resolveConfig() priority chain etc.)
   setConfig(configOptions);
@@ -177,10 +197,16 @@ export function configure(options: ConfigureOptions = {}): void {
           `signal() becomes a silent no-op. Pass strict: true to configure() to fail-fast instead.`
       );
     }
+    // Even when Kelet credentials are missing, run Layer A so the soft-warning
+    // path can fire on `injectCcTelemetry: false` + missing env. Layer A
+    // returns early when config is null — see configurePopulateProcessEnv.
+    void _installClaudeAgentSDK(null, injectCcTelemetry);
     return;
   }
 
   setSharedConfig(config);
+
+  void _installClaudeAgentSDK(config, injectCcTelemetry);
 
   let processor: SpanProcessor;
   if (spanProcessor !== undefined) {
@@ -312,12 +338,9 @@ function _autoInstallReasoningObserver(
   // under Bun; browser bundlers tree-shake it when the host doesn't
   // depend on ``@anthropic-ai/claude-agent-sdk``.
   //
-  // ``@anthropic-ai/claude-agent-sdk`` is an OPTIONAL peer dep — Kelet
-  // ships without it and TS can't resolve the type declarations during
-  // ``tsc --noEmit``. The ``@ts-expect-error`` silences the missing-
-  // module diagnostic without suppressing other errors in the block.
-  // The runtime handling is the Promise catch below.
-  // @ts-expect-error — optional peer dep, may be absent at build time.
+  // ``@anthropic-ai/claude-agent-sdk`` is an OPTIONAL peer dep. Type
+  // declarations resolve when the package is installed in dev/test;
+  // production runtime guards via the Promise catch below.
   void import('@anthropic-ai/claude-agent-sdk')
     .then((sdk: unknown) => {
       installReasoningObserver(sdk as ClaudeAgentSDKModule);
@@ -430,4 +453,36 @@ export function resetSetup(): void {
   // resets the OTel global LoggerProvider to no-op, which would
   // clobber whatever the host app had wired there. The Kelet SDK
   // never set the global, so there's nothing for us to reset.
+}
+
+/**
+ * Two-layer Claude Agent SDK install.
+ *
+ * Layer A — populate `process.env` set-if-missing (always runs; cheap and
+ * harmless even if `@anthropic-ai/claude-agent-sdk` isn't installed).
+ *
+ * Layer B — wrap public exports of `@anthropic-ai/claude-agent-sdk`. This
+ * lazy-imports the package and silently skips when missing. Only catches
+ * namespace-import patterns (`import * as cas from ...`) — destructured
+ * users still need `kelet/claude-agent-sdk/register` (loader) or
+ * `kelet/claude-agent-sdk/shim` (shim).
+ *
+ * Errors from either layer are caught and logged once; the SDK never blocks
+ * `configure()` on an integration failure.
+ */
+async function _installClaudeAgentSDK(
+  config: KeletConfig | null,
+  injectCcTelemetry: boolean
+): Promise<void> {
+  try {
+    const { configurePopulateProcessEnv, installClaudeAgentSDK } = await import(
+      './claude-agent-sdk/index'
+    );
+    configurePopulateProcessEnv(config, { injectCcTelemetry });
+    if (config !== null) {
+      await installClaudeAgentSDK({ injectCcTelemetry });
+    }
+  } catch (err) {
+    console.warn('[kelet] Claude Agent SDK integration failed to install:', err);
+  }
 }
