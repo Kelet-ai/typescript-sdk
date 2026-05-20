@@ -1,3 +1,19 @@
+# [0.8.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.7.0...v0.8.0) (2026-05-20)
+
+
+### Bug Fixes
+
+* **ci:** add ai to devDependencies so typecheck resolves src/aisdk.ts ([fb89839](https://github.com/kelet-ai/typescript-sdk/commit/fb898397f8d21788d91a2e50a5c2d3c3e9abc676))
+* **claude-agent-sdk:** correct wrapQuery arg shape, remove ClaudeSDKClient (TS-only), and fix Layer A/B consistency ([660721f](https://github.com/kelet-ai/typescript-sdk/commit/660721f40afc59265e0f9e6025d9482b6ccb1983))
+* **claude-agent-sdk:** materialize options as plain object when ClaudeAgentOptionsCtor unavailable ([4aa9c10](https://github.com/kelet-ai/typescript-sdk/commit/4aa9c101d2bdc725b31ccc4da9932e28621eb90e))
+
+
+### Features
+
+* **claude-agent-sdk:** auto-inject OTLP env vars + reasoning capture (KEL-406) ([2f97b69](https://github.com/kelet-ai/typescript-sdk/commit/2f97b696cf7d93518f5e4e332761845d6014244a))
+
+
+
 # [0.7.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.6.0...v0.7.0) (2026-05-18)
 
 
@@ -41,19 +57,6 @@
 * **setup:** drop SIGINT/SIGTERM handlers ([1bd4f65](https://github.com/kelet-ai/typescript-sdk/commit/1bd4f658ea6eeac7f557c0447c4ae6b636a5b9e9))
 * **signal:** log per-attempt retry warnings to match Python SDK ([107476a](https://github.com/kelet-ai/typescript-sdk/commit/107476a7f1f87258b7d402043a5c1ad6cf091cde))
 * **signal:** swallow transport failures by default; add shutdown() ([f168b06](https://github.com/kelet-ai/typescript-sdk/commit/f168b06f2fc8b0ea008b1d58eabb960a5160e1b0))
-
-
-
-## [0.5.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.5.0...v0.5.1) (2026-04-07)
-
-
-### Bug Fixes
-
-* add @types/bun to tsconfig types so bun:test resolves ([145089c](https://github.com/kelet-ai/typescript-sdk/commit/145089c49209078ea8e862ea9180165d6721b822))
-* add rootDir to tsconfig.build.json, revert unnecessary types override ([e070a1e](https://github.com/kelet-ai/typescript-sdk/commit/e070a1e4b847605ed0677982c4ec4f58e19f9c81))
-* exclude @types/bun from build tsconfig to fix rootDir error ([ab91456](https://github.com/kelet-ai/typescript-sdk/commit/ab9145688249fe0c88e5be559e78e75162da8ffb))
-* **KEL-374:** add project to KeletExporter tests missing project ([5f7aac3](https://github.com/kelet-ai/typescript-sdk/commit/5f7aac3cf973a04a11652ec2092d594a805450cc))
-* **KEL-374:** remove default project fallback, fail-fast on missing project ([936d899](https://github.com/kelet-ai/typescript-sdk/commit/936d8995c4a78b933df1f613109ef31b906fe7b6))
 
 
 
