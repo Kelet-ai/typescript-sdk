@@ -333,3 +333,195 @@ export { observeAssistantMessage, REASONING_EVENT_NAME } from './streamObserver'
 export function wrapClaudeAgentSDK<T extends ClaudeAgentSDKModule>(sdk: T): T {
   return installReasoningObserver(sdk);
 }
+
+// ---------------------------------------------------------------------------
+// Layer A — `process.env` population. Called by `configure()` so the spawned
+// `claude` subprocess inherits the seven CC OTLP keys without the user
+// touching env vars themselves.
+//
+// Set-if-missing semantics: never overrides a non-empty existing value, so
+// host-app pipelines (Sentry, Datadog, custom collector) keep their wiring.
+// On conflict, logs a single WARN naming the deferred keys.
+// ---------------------------------------------------------------------------
+
+import { resolveConfig, type KeletConfig } from '../config';
+import {
+  formatDeferredWarning,
+  formatOptOutSoftWarning,
+  populateProcessEnv,
+} from './envInjection';
+import {
+  setLogger as setReasoningObserverLogger,
+  setInjectCcTelemetry,
+  resetInjectCcTelemetry,
+  type MinimalLogger,
+} from './reasoningObserver';
+
+export interface ConfigurePopulateProcessEnvOptions {
+  /** Default `true`. When `false`, Layer A is a no-op (and emits a soft warning if `CLAUDE_CODE_ENABLE_TELEMETRY` is missing from `process.env`). */
+  injectCcTelemetry?: boolean;
+}
+
+let _softWarnedOptOut = false;
+
+/**
+ * Layer A install — populate `process.env` with the seven CC OTLP keys
+ * (set-if-missing). Returns `{ injected, deferred }` so callers can verify.
+ *
+ * Set `config` to `null` when Kelet credentials aren't resolvable; the
+ * function still emits the soft warning when `injectCcTelemetry: false`
+ * AND `CLAUDE_CODE_ENABLE_TELEMETRY` is missing.
+ *
+ * Process-wide blast radius — see ``envInjection.ts`` for why we defer
+ * instead of overriding.
+ */
+export function configurePopulateProcessEnv(
+  config: KeletConfig | null,
+  opts: ConfigurePopulateProcessEnvOptions = {},
+): { injected: string[]; deferred: string[] } {
+  const injectCcTelemetry = opts.injectCcTelemetry ?? true;
+  // Thread the flag to the wrapper module so Layer B respects the same
+  // opt-out. Always — even when config is null — so a re-configure can
+  // toggle back on.
+  setInjectCcTelemetry(injectCcTelemetry);
+
+  if (!injectCcTelemetry) {
+    if (!_softWarnedOptOut && !process.env.CLAUDE_CODE_ENABLE_TELEMETRY) {
+      _softWarnedOptOut = true;
+      console.info(formatOptOutSoftWarning());
+    }
+    return { injected: [], deferred: [] };
+  }
+  if (config === null) return { injected: [], deferred: [] };
+
+  const result = populateProcessEnv(config);
+  if (result.deferred.length > 0) {
+    console.warn(formatDeferredWarning(result.deferred));
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Layer B — namespace mutation install. Wraps `query` and `ClaudeSDKClient`
+// on the `@anthropic-ai/claude-agent-sdk` module so callers using namespace
+// imports (`import * as cas from '...'`) get the wrapped exports.
+//
+// On Node ESM and Bun, module namespaces are FROZEN — assignment throws
+// `TypeError: Cannot assign to read only property`. The install captures
+// that and returns `false` (silent graceful degrade); destructured-import
+// users on those runtimes need the loader (`kelet/claude-agent-sdk/register`)
+// or the shim (`kelet/claude-agent-sdk/shim`) instead.
+// ---------------------------------------------------------------------------
+
+import { wrapQuery } from './reasoningObserver';
+
+export interface InstallClaudeAgentSDKOptions {
+  injectCcTelemetry?: boolean;
+  /** Optional MinimalLogger override — used by tests. Production wires the LoggerProvider via {@link buildKeletLoggerProvider}. */
+  logger?: MinimalLogger;
+}
+
+interface CASInstallState {
+  installed: boolean;
+  originalQuery?: unknown;
+  originalClient?: unknown;
+  module?: Record<string, unknown>;
+}
+
+let _installState: CASInstallState = { installed: false };
+
+/**
+ * Reset Layer B install state — for testing only.
+ * @internal
+ */
+export function _resetCASState(): void {
+  _installState = { installed: false };
+  _softWarnedOptOut = false;
+  resetInjectCcTelemetry();
+}
+
+/**
+ * Layer B install — wrap `query` / `ClaudeSDKClient` on the namespace
+ * import of `@anthropic-ai/claude-agent-sdk`.
+ *
+ * Returns `true` on successful mutation, `false` when:
+ * - the package isn't installed,
+ * - the namespace is frozen (Node ESM, Bun),
+ * - install was already done (idempotent — second call is a no-op).
+ *
+ * On idempotent calls we still honor the latest `injectCcTelemetry` flag
+ * and `logger` override so a subsequent `configure()` change isn't lost.
+ */
+export async function installClaudeAgentSDK(
+  opts: InstallClaudeAgentSDKOptions = {},
+): Promise<boolean> {
+  const injectCcTelemetry = opts.injectCcTelemetry ?? true;
+  setInjectCcTelemetry(injectCcTelemetry);
+  if (opts.logger !== undefined) setReasoningObserverLogger(opts.logger);
+
+  if (_installState.installed) return false;
+
+  let mod: Record<string, unknown>;
+  try {
+    mod = (await import('@anthropic-ai/claude-agent-sdk')) as Record<string, unknown>;
+  } catch {
+    return false;
+  }
+
+  const originalQuery = mod['query'];
+  const originalClient = mod['ClaudeSDKClient'];
+  const ClaudeAgentOptionsCtor = (mod['ClaudeAgentOptions'] ?? null) as
+    | (new () => { env?: Record<string, string> })
+    | null;
+
+  const configResolver = (): KeletConfig | null => {
+    try {
+      return resolveConfig();
+    } catch {
+      return null;
+    }
+  };
+
+  try {
+    if (typeof originalQuery === 'function') {
+      mod['query'] = wrapQuery(
+        originalQuery as (...args: unknown[]) => AsyncIterable<unknown>,
+        configResolver,
+        ClaudeAgentOptionsCtor,
+      );
+    }
+  } catch {
+    // Frozen namespace under Node ESM / Bun — graceful degrade. Users can
+    // still install via `kelet/claude-agent-sdk/register` or
+    // `kelet/claude-agent-sdk/shim`.
+    return false;
+  }
+
+  _installState = {
+    installed: true,
+    originalQuery,
+    originalClient,
+    module: mod,
+  };
+  return true;
+}
+
+/**
+ * Layer B uninstall — restore the original `query` / `ClaudeSDKClient`
+ * exports. No-op when Layer B never installed (frozen namespace, package
+ * absent, or `installClaudeAgentSDK` not called).
+ */
+export async function uninstallClaudeAgentSDK(): Promise<void> {
+  if (!_installState.installed || !_installState.module) return;
+  const { module: mod, originalQuery, originalClient } = _installState;
+  try {
+    if (originalQuery !== undefined) mod['query'] = originalQuery;
+    if (originalClient !== undefined) mod['ClaudeSDKClient'] = originalClient;
+  } catch {
+    // Frozen — nothing to roll back to (user's destructured import already
+    // captured the wrapped reference).
+  }
+  _installState = { installed: false };
+}
+
+export { CC_OTLP_ENV_KEYS } from './envInjection';
