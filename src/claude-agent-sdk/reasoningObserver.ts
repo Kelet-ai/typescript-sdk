@@ -157,11 +157,13 @@ export function wrapQuery<F extends (...args: unknown[]) => AsyncIterable<unknow
     const firstArg = args[0];
     if (typeof firstArg === 'object' && firstArg !== null) {
       const params = firstArg as Record<string, unknown>;
-      // Materialize options if absent
+      // Materialize options if absent — use the constructor when available
+      // (preserves the SDK's class shape), otherwise fall back to a plain
+      // object so env injection still runs when the constructor is unavailable.
       if (params['options'] === undefined || params['options'] === null) {
-        if (ClaudeAgentOptionsCtor !== null) {
-          params['options'] = new ClaudeAgentOptionsCtor();
-        }
+        params['options'] = ClaudeAgentOptionsCtor !== null
+          ? new ClaudeAgentOptionsCtor()
+          : {};
       }
       const opts = params['options'];
       if (typeof opts === 'object' && opts !== null) {
