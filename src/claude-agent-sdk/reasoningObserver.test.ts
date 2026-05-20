@@ -6,7 +6,6 @@ import {
   resetLogger,
   setInjectCcTelemetry,
   setLogger,
-  wrapClaudeSDKClient,
   wrapQuery,
   type MinimalLogger,
 } from './reasoningObserver';
@@ -62,28 +61,28 @@ describe('wrapQuery — env injection', () => {
     resetLogger();
   });
 
-  test('injects seven keys when options is undefined', async () => {
+  test('injects seven keys when options is absent from the params object', async () => {
     const wrapped = wrapQuery(_makeOriginalQuery(), () => TEST_CONFIG, _FakeClaudeAgentOptions);
-    // Drain.
-    for await (const _ of wrapped('prompt')) {
+    // TS SDK signature: query({ prompt, options? })
+    for await (const _ of wrapped({ prompt: 'hello' })) {
       void _;
     }
-    const options = capturedArgs[1] as _FakeClaudeAgentOptions;
-    expect(options).toBeDefined();
-    expect(options.env).toBeDefined();
-    expect(options.env!.CLAUDE_CODE_ENABLE_TELEMETRY).toBe('1');
-    expect(options.env!.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('http://localhost:5002');
+    const params = capturedArgs[0] as { prompt: string; options?: _FakeClaudeAgentOptions };
+    expect(params.options).toBeDefined();
+    expect(params.options!.env).toBeDefined();
+    expect(params.options!.env!.CLAUDE_CODE_ENABLE_TELEMETRY).toBe('1');
+    expect(params.options!.env!.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('http://localhost:5002');
   });
 
-  test('preserves user-supplied options.env keys', async () => {
+  test('preserves user-supplied options.env keys (set-if-missing)', async () => {
     const userOpts = new _FakeClaudeAgentOptions();
     userOpts.env = { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://user.example' };
     const wrapped = wrapQuery(_makeOriginalQuery(), () => TEST_CONFIG, _FakeClaudeAgentOptions);
-    for await (const _ of wrapped('prompt', userOpts)) {
+    for await (const _ of wrapped({ prompt: 'hello', options: userOpts })) {
       void _;
     }
     expect(userOpts.env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('https://user.example');
-    // Other six injected.
+    // Other six are still injected.
     expect(userOpts.env.CLAUDE_CODE_ENABLE_TELEMETRY).toBe('1');
   });
 
@@ -92,7 +91,7 @@ describe('wrapQuery — env injection', () => {
     const userOpts = new _FakeClaudeAgentOptions();
     userOpts.env = {};
     const wrapped = wrapQuery(_makeOriginalQuery(), () => TEST_CONFIG, _FakeClaudeAgentOptions);
-    for await (const _ of wrapped('prompt', userOpts)) {
+    for await (const _ of wrapped({ prompt: 'hello', options: userOpts })) {
       void _;
     }
     expect(userOpts.env).toEqual({});
@@ -102,7 +101,7 @@ describe('wrapQuery — env injection', () => {
     const userOpts = new _FakeClaudeAgentOptions();
     userOpts.env = { OTHER: 'value' };
     const wrapped = wrapQuery(_makeOriginalQuery(), () => null, _FakeClaudeAgentOptions);
-    for await (const _ of wrapped('prompt', userOpts)) {
+    for await (const _ of wrapped({ prompt: 'hello', options: userOpts })) {
       void _;
     }
     expect(userOpts.env).toEqual({ OTHER: 'value' });
@@ -126,6 +125,7 @@ describe('wrapQuery — observer', () => {
 
     async function* original(..._args: unknown[]): AsyncIterable<unknown> {
       yield {
+        type: 'assistant',
         message_id: 'msg-1',
         session_id: 'sess-A',
         content: [
@@ -138,7 +138,7 @@ describe('wrapQuery — observer', () => {
 
     const wrapped = wrapQuery(original, () => TEST_CONFIG, _FakeClaudeAgentOptions);
     const items: unknown[] = [];
-    for await (const item of wrapped('prompt')) {
+    for await (const item of wrapped({ prompt: 'hello' })) {
       items.push(item);
     }
 
@@ -158,17 +158,19 @@ describe('wrapQuery — observer', () => {
     setLogger(logger);
 
     async function* original(..._args: unknown[]): AsyncIterable<unknown> {
+      // TS SDK shape: session_id is on the top-level envelope, content is under message.
       yield {
+        type: 'assistant',
+        session_id: 'sess-B',
         message: {
           id: 'msg-2',
-          session_id: 'sess-B',
           content: [{ thinking: 'ts-shape thought', signature: 'sig' }],
         },
       };
     }
 
     const wrapped = wrapQuery(original, () => TEST_CONFIG, _FakeClaudeAgentOptions);
-    for await (const _ of wrapped('prompt')) {
+    for await (const _ of wrapped({ prompt: 'hello' })) {
       void _;
     }
 
@@ -185,18 +187,20 @@ describe('wrapQuery — observer', () => {
     async function* original(..._args: unknown[]): AsyncIterable<unknown> {
       // First message has session_id; second doesn't.
       yield {
+        type: 'assistant',
         message_id: 'm1',
         session_id: 'sess-X',
         content: [{ thinking: 'first', signature: '' }],
       };
       yield {
+        type: 'assistant',
         message_id: 'm2',
         content: [{ thinking: 'second', signature: '' }],
       };
     }
 
     const wrapped = wrapQuery(original, () => TEST_CONFIG, _FakeClaudeAgentOptions);
-    for await (const _ of wrapped('prompt')) {
+    for await (const _ of wrapped({ prompt: 'hello' })) {
       void _;
     }
 
@@ -208,11 +212,11 @@ describe('wrapQuery — observer', () => {
   test('silently no-ops when no logger is set', async () => {
     // No setLogger call.
     async function* original(..._args: unknown[]): AsyncIterable<unknown> {
-      yield { content: [{ thinking: 'silent', signature: '' }] };
+      yield { type: 'assistant', content: [{ thinking: 'silent', signature: '' }] };
     }
     const wrapped = wrapQuery(original, () => TEST_CONFIG, _FakeClaudeAgentOptions);
     // Should not throw.
-    for await (const _ of wrapped('prompt')) {
+    for await (const _ of wrapped({ prompt: 'hello' })) {
       void _;
     }
     // Sanity: nothing crashed.
@@ -228,12 +232,12 @@ describe('wrapQuery — observer', () => {
     setLogger(explodingLogger);
 
     async function* original(..._args: unknown[]): AsyncIterable<unknown> {
-      yield { content: [{ thinking: 'oops', signature: '' }] };
-      yield { content: [{ thinking: 'recovered', signature: '' }] };
+      yield { type: 'assistant', content: [{ thinking: 'oops', signature: '' }] };
+      yield { type: 'assistant', content: [{ thinking: 'recovered', signature: '' }] };
     }
     const wrapped = wrapQuery(original, () => TEST_CONFIG, _FakeClaudeAgentOptions);
     let count = 0;
-    for await (const _ of wrapped('prompt')) {
+    for await (const _ of wrapped({ prompt: 'hello' })) {
       count += 1;
       void _;
     }
@@ -246,6 +250,7 @@ describe('wrapQuery — observer', () => {
 
     async function* original(..._args: unknown[]): AsyncIterable<unknown> {
       yield {
+        type: 'assistant',
         content: [
           { type: 'text', text: 'visible' },
           { thinking: 42, signature: 'wrong-type' },  // thinking must be string
@@ -253,92 +258,9 @@ describe('wrapQuery — observer', () => {
       };
     }
     const wrapped = wrapQuery(original, () => TEST_CONFIG, _FakeClaudeAgentOptions);
-    for await (const _ of wrapped('prompt')) {
+    for await (const _ of wrapped({ prompt: 'hello' })) {
       void _;
     }
     expect(logger.records).toHaveLength(0);
-  });
-});
-
-describe('wrapClaudeSDKClient — env injection', () => {
-  class _FakeClient {
-    constructorOpts: unknown;
-    constructor(options?: unknown) {
-      this.constructorOpts = options;
-    }
-    async *receive_messages(): AsyncIterable<unknown> {
-      yield { content: [{ thinking: 'inner-thought', signature: '' }] };
-    }
-    async *receive_response(): AsyncIterable<unknown> {
-      yield { content: [{ thinking: 'response-thought', signature: '' }] };
-    }
-  }
-
-  beforeEach(() => {
-    resetInjectCcTelemetry();
-    resetLogger();
-  });
-
-  afterEach(() => {
-    resetInjectCcTelemetry();
-    resetLogger();
-  });
-
-  test('materializes options when none passed and injects env', () => {
-    const Wrapped = wrapClaudeSDKClient(
-      _FakeClient as unknown as new (o?: unknown) => object,
-      () => TEST_CONFIG,
-      _FakeClaudeAgentOptions
-    );
-    const inst = new Wrapped() as unknown as _FakeClient;
-    const opts = inst.constructorOpts as _FakeClaudeAgentOptions;
-    expect(opts).toBeDefined();
-    expect(opts.env).toBeDefined();
-    expect(opts.env!.CLAUDE_CODE_ENABLE_TELEMETRY).toBe('1');
-  });
-
-  test('passes through user-provided options.env (set-if-missing)', () => {
-    const Wrapped = wrapClaudeSDKClient(
-      _FakeClient as unknown as new (o?: unknown) => object,
-      () => TEST_CONFIG,
-      _FakeClaudeAgentOptions
-    );
-    const userOpts = new _FakeClaudeAgentOptions();
-    userOpts.env = { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://user.example' };
-    new Wrapped(userOpts);
-    expect(userOpts.env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('https://user.example');
-    expect(userOpts.env.CLAUDE_CODE_ENABLE_TELEMETRY).toBe('1');
-  });
-
-  test('observer fires on receive_messages', async () => {
-    const logger = new _CapturingLogger();
-    setLogger(logger);
-    const Wrapped = wrapClaudeSDKClient(
-      _FakeClient as unknown as new (o?: unknown) => object,
-      () => TEST_CONFIG,
-      _FakeClaudeAgentOptions
-    );
-    const inst = new Wrapped() as unknown as _FakeClient;
-    for await (const _ of inst.receive_messages()) {
-      void _;
-    }
-    expect(logger.records).toHaveLength(1);
-    expect(logger.records[0]!.attributes!['reasoning.text']).toBe('inner-thought');
-  });
-
-  test('observer fires on receive_response', async () => {
-    const logger = new _CapturingLogger();
-    setLogger(logger);
-    const Wrapped = wrapClaudeSDKClient(
-      _FakeClient as unknown as new (o?: unknown) => object,
-      () => TEST_CONFIG,
-      _FakeClaudeAgentOptions
-    );
-    const inst = new Wrapped() as unknown as _FakeClient;
-    for await (const _ of inst.receive_response()) {
-      void _;
-    }
-    expect(logger.records).toHaveLength(1);
-    expect(logger.records[0]!.attributes!['reasoning.text']).toBe('response-thought');
   });
 });

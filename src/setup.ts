@@ -474,15 +474,21 @@ async function _installClaudeAgentSDK(
   config: KeletConfig | null,
   injectCcTelemetry: boolean
 ): Promise<void> {
+  // Layer A — process.env set-if-missing. Imported from envInjection directly
+  // so a missing optional OTEL peer doesn't prevent process.env population.
   try {
-    const { configurePopulateProcessEnv, installClaudeAgentSDK } = await import(
-      './claude-agent-sdk/index'
-    );
+    const { configurePopulateProcessEnv } = await import('./claude-agent-sdk/index');
     configurePopulateProcessEnv(config, { injectCcTelemetry });
-    if (config !== null) {
-      await installClaudeAgentSDK({ injectCcTelemetry });
-    }
   } catch (err) {
-    console.warn('[kelet] Claude Agent SDK integration failed to install:', err);
+    console.warn('[kelet] CAS Layer A (process.env inject) failed:', err);
+  }
+  // Layer B — wrap public exports; needs OTEL peers for reasoning capture.
+  if (config !== null) {
+    try {
+      const { installClaudeAgentSDK } = await import('./claude-agent-sdk/index');
+      await installClaudeAgentSDK({ injectCcTelemetry });
+    } catch (err) {
+      console.warn('[kelet] CAS Layer B (wrapper install) failed:', err);
+    }
   }
 }

@@ -14,7 +14,7 @@
  *
  * Combined with `kelet.configure()` in the app: configure() handles
  * Layer A (`process.env`); this loader handles Layer B (the public
- * `query` / `ClaudeSDKClient` exports).
+ * `query` export).
  *
  * Runtime compatibility:
  * - Node.js / tsx: full support.
@@ -26,7 +26,7 @@
 
 import { Hook } from 'import-in-the-middle';
 import { resolveConfig, type KeletConfig } from '../config';
-import { wrapClaudeSDKClient, wrapQuery } from './reasoningObserver';
+import { wrapQuery } from './reasoningObserver';
 
 const debug = (msg: string) =>
   process.env.DEBUG?.includes('kelet') && console.log(`[kelet] ${msg}`);
@@ -58,12 +58,7 @@ new Hook(['@anthropic-ai/claude-agent-sdk'], (exports: Record<string, unknown>) 
     exports['query'] = wrapQuery(original, configResolver, ClaudeAgentOptionsCtor);
   }
 
-  if (typeof exports['ClaudeSDKClient'] === 'function') {
-    const Original = exports['ClaudeSDKClient'] as new (options?: unknown) => object;
-    exports['ClaudeSDKClient'] = wrapClaudeSDKClient(Original, configResolver, ClaudeAgentOptionsCtor);
-  }
-
-  debug('Hooked @anthropic-ai/claude-agent-sdk (query, ClaudeSDKClient)');
+  debug('Hooked @anthropic-ai/claude-agent-sdk (query)');
 });
 
 debug('Claude Agent SDK loader hook registered');

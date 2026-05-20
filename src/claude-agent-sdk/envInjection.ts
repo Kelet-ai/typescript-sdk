@@ -152,7 +152,7 @@ export function mergeIntoOptions(
   const cc = buildCcEnv(config);
   const merged: Record<string, string> = { ...(optionsEnv ?? {}) };
   for (const key of CC_OTLP_ENV_KEYS) {
-    if (!(key in merged)) {
+    if (!merged[key]) {
       merged[key] = cc[key];
     }
   }

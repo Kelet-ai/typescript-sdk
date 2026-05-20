@@ -413,7 +413,7 @@ export function configurePopulateProcessEnv(
 // or the shim (`kelet/claude-agent-sdk/shim`) instead.
 // ---------------------------------------------------------------------------
 
-import { wrapClaudeSDKClient, wrapQuery } from './reasoningObserver';
+import { wrapQuery } from './reasoningObserver';
 
 export interface InstallClaudeAgentSDKOptions {
   injectCcTelemetry?: boolean;
@@ -486,13 +486,6 @@ export async function installClaudeAgentSDK(
     if (typeof originalQuery === 'function') {
       mod['query'] = wrapQuery(
         originalQuery as (...args: unknown[]) => AsyncIterable<unknown>,
-        configResolver,
-        ClaudeAgentOptionsCtor,
-      );
-    }
-    if (typeof originalClient === 'function') {
-      mod['ClaudeSDKClient'] = wrapClaudeSDKClient(
-        originalClient as new (options?: unknown) => object,
         configResolver,
         ClaudeAgentOptionsCtor,
       );
