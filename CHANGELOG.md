@@ -1,3 +1,12 @@
+## [0.8.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.8.0...v0.8.1) (2026-05-21)
+
+
+### Bug Fixes
+
+* **claude-agent-sdk:** inject CC trace-export beta gate + log-content vars ([25b0883](https://github.com/kelet-ai/typescript-sdk/commit/25b08835e58ad0028d99c68d353641bd3b1aeaeb))
+
+
+
 # [0.8.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.7.0...v0.8.0) (2026-05-20)
 
 
@@ -46,17 +55,6 @@
 ### Bug Fixes
 
 * **configure:** warn-and-no-op on missing KELET_API_KEY instead of crashing ([6e91fc6](https://github.com/kelet-ai/typescript-sdk/commit/6e91fc6222a7b869a545775b101001883bdc0dc3))
-
-
-
-## [0.5.2](https://github.com/kelet-ai/typescript-sdk/compare/v0.5.1...v0.5.2) (2026-04-20)
-
-
-### Bug Fixes
-
-* **setup:** drop SIGINT/SIGTERM handlers ([1bd4f65](https://github.com/kelet-ai/typescript-sdk/commit/1bd4f658ea6eeac7f557c0447c4ae6b636a5b9e9))
-* **signal:** log per-attempt retry warnings to match Python SDK ([107476a](https://github.com/kelet-ai/typescript-sdk/commit/107476a7f1f87258b7d402043a5c1ad6cf091cde))
-* **signal:** swallow transport failures by default; add shutdown() ([f168b06](https://github.com/kelet-ai/typescript-sdk/commit/f168b06f2fc8b0ea008b1d58eabb960a5160e1b0))
 
 
 
