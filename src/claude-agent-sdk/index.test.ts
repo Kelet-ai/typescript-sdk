@@ -46,7 +46,7 @@ describe('configurePopulateProcessEnv', () => {
 
   test('populates process.env when config provided + flag default', () => {
     const result = configurePopulateProcessEnv(TEST_CONFIG);
-    expect(result.injected.length).toBe(7);
+    expect(result.injected.length).toBe(CC_OTLP_ENV_KEYS.length);
     expect(process.env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('http://localhost:5002');
   });
 

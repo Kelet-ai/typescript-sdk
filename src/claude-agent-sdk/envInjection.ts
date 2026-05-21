@@ -5,7 +5,7 @@
  *
  * Layer A — populate `process.env` (`populateProcessEnv`)
  *   Mutates the host process's `process.env`. Used at `configure()` time
- *   to set the seven OTLP keys *if missing*. NEVER overrides a non-empty
+ *   to set the OTLP keys *if missing*. NEVER overrides a non-empty
  *   existing value, because `process.env` is process-wide state — silently
  *   replacing an OTEL endpoint set for Sentry/Datadog/etc. would clobber
  *   the host's other pipelines. When we *don't* override, we log a
@@ -17,8 +17,8 @@
  *   has a quirk: if the caller passes `options.env`, the spawned `claude`
  *   sees ONLY `options.env` — `process.env` is not merged in. So a user
  *   who passes `options.env` for unrelated reasons would silently lose
- *   Layer A's `process.env` injection. Layer B re-adds the seven keys
- *   into `options.env` set-if-missing, so user-supplied keys still win
+ *   Layer A's `process.env` injection. Layer B re-adds the keys into
+ *   `options.env` set-if-missing, so user-supplied keys still win
  *   per-call.
  *
  * @module claude-agent-sdk/envInjection
@@ -27,10 +27,26 @@
 import type { KeletConfig } from '../config';
 
 /**
- * The seven OTLP env keys Claude Code reads to enable native telemetry.
+ * Every env key Claude Code reads to enable native telemetry and produce
+ * un-redacted log content. Three groups, all required for Kelet's
+ * ingestion contract to hold:
+ *
+ * - **OTLP transport (7 keys)** — turn telemetry on and route all three
+ *   signals at the Kelet endpoint with auth.
+ * - **Trace-export gate (1 key)** — `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`,
+ *   added in CC 2.1.146; without it the CLI emits logs + metrics but
+ *   installs no trace exporter at all, silently dropping every span.
+ * - **Log-content gates (4 keys)** — `OTEL_LOG_*`. CC redacts these
+ *   payloads by default; Kelet's CC ingestion correlates the
+ *   `api_response_body` log records to llm_request spans to extract
+ *   assistant text and tool calls — leaving redaction on means every
+ *   assistant message comes through as `<REDACTED>` and the extracted
+ *   session is empty.
+ *
  * Order is informative only — callers iterate as a set.
  */
 export const CC_OTLP_ENV_KEYS = [
+  // OTLP transport
   'CLAUDE_CODE_ENABLE_TELEMETRY',
   'OTEL_LOGS_EXPORTER',
   'OTEL_METRICS_EXPORTER',
@@ -38,18 +54,26 @@ export const CC_OTLP_ENV_KEYS = [
   'OTEL_EXPORTER_OTLP_PROTOCOL',
   'OTEL_EXPORTER_OTLP_ENDPOINT',
   'OTEL_EXPORTER_OTLP_HEADERS',
+  // Trace-export gate (CC 2.1.146+)
+  'CLAUDE_CODE_ENHANCED_TELEMETRY_BETA',
+  // Log-content gates — Kelet's ingestion needs the un-redacted bodies
+  'OTEL_LOG_USER_PROMPTS',
+  'OTEL_LOG_TOOL_DETAILS',
+  'OTEL_LOG_TOOL_CONTENT',
+  'OTEL_LOG_RAW_API_BODIES',
 ] as const;
 
 export type CcEnv = Record<(typeof CC_OTLP_ENV_KEYS)[number], string>;
 
 /**
- * Build the seven-key env dict for the spawned `claude` subprocess.
+ * Build the full OTLP env dict for the spawned `claude` subprocess.
  *
  * Values are derived from the supplied {@link KeletConfig} so a config
  * change between import and call is reflected.
  */
 export function buildCcEnv(config: KeletConfig): CcEnv {
   return {
+    // OTLP transport
     CLAUDE_CODE_ENABLE_TELEMETRY: '1',
     OTEL_LOGS_EXPORTER: 'otlp',
     OTEL_METRICS_EXPORTER: 'otlp',
@@ -57,6 +81,19 @@ export function buildCcEnv(config: KeletConfig): CcEnv {
     OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf',
     OTEL_EXPORTER_OTLP_ENDPOINT: config.apiUrl,
     OTEL_EXPORTER_OTLP_HEADERS: `authorization=${config.apiKey},x-kelet-project=${config.project}`,
+    // CC 2.1.146+ gates trace export behind this beta flag — without it
+    // the CLI ships logs + metrics but installs no span exporter at all,
+    // so every span is silently dropped.
+    CLAUDE_CODE_ENHANCED_TELEMETRY_BETA: '1',
+    // CC's OTLP logs default to redacting these payloads. Kelet's
+    // ingestion workflow correlates `api_response_body` records to
+    // llm_request spans to extract assistant text + tool calls; leaving
+    // redaction on means assistant messages come through as `<REDACTED>`
+    // and the extracted session is empty.
+    OTEL_LOG_USER_PROMPTS: '1',
+    OTEL_LOG_TOOL_DETAILS: '1',
+    OTEL_LOG_TOOL_CONTENT: '1',
+    OTEL_LOG_RAW_API_BODIES: '1',
   };
 }
 
@@ -168,8 +205,8 @@ export function mergeIntoOptions(
 export function formatOptOutSoftWarning(): string {
   return (
     '[kelet] injectCcTelemetry is false but CLAUDE_CODE_ENABLE_TELEMETRY ' +
-    "isn't set in process.env — Claude Code won't emit OTLP. Set the seven " +
-    'CC OTLP env vars yourself, or remove the injectCcTelemetry: false flag ' +
-    'to let Kelet inject them.'
+    "isn't set in process.env — Claude Code won't emit OTLP. Set the CC OTLP " +
+    'env vars yourself (see CC_OTLP_ENV_KEYS), or remove the ' +
+    'injectCcTelemetry: false flag to let Kelet inject them.'
   );
 }
