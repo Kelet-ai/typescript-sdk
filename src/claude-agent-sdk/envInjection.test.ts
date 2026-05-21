@@ -17,10 +17,12 @@ const TEST_CONFIG: KeletConfig = {
 };
 
 describe('buildCcEnv', () => {
-  test('returns exactly the seven OTLP keys', () => {
+  test('returns exactly the full OTLP key set', () => {
     const env = buildCcEnv(TEST_CONFIG);
     const keys = Object.keys(env).sort();
     expect(keys).toEqual([...CC_OTLP_ENV_KEYS].sort());
+    // 7 transport + 1 trace-export gate + 4 log-content gates
+    expect(keys.length).toBe(12);
   });
 
   test('embeds api_key + project in OTEL_EXPORTER_OTLP_HEADERS', () => {
@@ -42,6 +44,19 @@ describe('buildCcEnv', () => {
     expect(env.OTEL_METRICS_EXPORTER).toBe('otlp');
     expect(env.OTEL_TRACES_EXPORTER).toBe('otlp');
     expect(env.OTEL_EXPORTER_OTLP_PROTOCOL).toBe('http/protobuf');
+  });
+
+  test('enables CC 2.1.146+ trace-export beta gate', () => {
+    const env = buildCcEnv(TEST_CONFIG);
+    expect(env.CLAUDE_CODE_ENHANCED_TELEMETRY_BETA).toBe('1');
+  });
+
+  test('enables log-content gates so ingestion sees un-redacted bodies', () => {
+    const env = buildCcEnv(TEST_CONFIG);
+    expect(env.OTEL_LOG_USER_PROMPTS).toBe('1');
+    expect(env.OTEL_LOG_TOOL_DETAILS).toBe('1');
+    expect(env.OTEL_LOG_TOOL_CONTENT).toBe('1');
+    expect(env.OTEL_LOG_RAW_API_BODIES).toBe('1');
   });
 });
 
@@ -65,7 +80,7 @@ describe('populateProcessEnv (Layer A)', () => {
     }
   });
 
-  test('injects all seven keys when process.env is empty', () => {
+  test('injects every key when process.env is empty', () => {
     const result = populateProcessEnv(TEST_CONFIG);
     expect(result.injected.sort()).toEqual([...CC_OTLP_ENV_KEYS].sort());
     expect(result.deferred).toEqual([]);
@@ -105,7 +120,7 @@ describe('populateProcessEnv (Layer A)', () => {
 });
 
 describe('mergeIntoOptions (Layer B)', () => {
-  test('returns a new object with all seven keys when input is undefined', () => {
+  test('returns a new object with every key when input is undefined', () => {
     const merged = mergeIntoOptions(undefined, TEST_CONFIG);
     for (const key of CC_OTLP_ENV_KEYS) {
       expect(merged[key]).toBeDefined();
@@ -118,7 +133,7 @@ describe('mergeIntoOptions (Layer B)', () => {
     };
     const merged = mergeIntoOptions(optionsEnv, TEST_CONFIG);
     expect(merged.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('https://user-pinned.example');
-    // Other six injected.
+    // Other defaults injected.
     expect(merged.CLAUDE_CODE_ENABLE_TELEMETRY).toBe('1');
     expect(merged.OTEL_EXPORTER_OTLP_HEADERS).toContain('authorization=test-key');
   });
