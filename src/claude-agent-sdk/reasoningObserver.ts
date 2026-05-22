@@ -13,6 +13,7 @@
 import type { KeletConfig } from '../config';
 import { buildCcEnv, mergeIntoOptions } from './envInjection';
 import { observeAssistantMessage, REASONING_EVENT_NAME } from './streamObserver';
+import { bracketAsyncIterable, markBracketed } from './wrapperSpan';
 
 export { REASONING_EVENT_NAME } from './streamObserver';
 
@@ -171,8 +172,15 @@ export function wrapQuery<F extends (...args: unknown[]) => AsyncIterable<unknow
       }
     }
     const inner = original.apply(this, args);
-    return observeAsyncIterable(inner);
+    // Bracket the entire iteration with a `claude_code.sdk_query` span
+    // (scope `kelet.claude_agent_sdk`) so the Kelet server's per-session
+    // reconciler can roll multi-`query()` workflows under one Kelet
+    // session — see ./wrapperSpan.ts for the contract.
+    return bracketAsyncIterable(observeAsyncIterable(inner));
   };
+  // Stamp the replacement so `installReasoningObserver` (Layer A) won't
+  // re-bracket if both install paths run during `configure()`.
+  markBracketed(wrapped);
   return wrapped as unknown as F;
 }
 

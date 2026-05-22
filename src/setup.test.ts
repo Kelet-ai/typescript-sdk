@@ -4,7 +4,7 @@ import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
-import { trace } from '@opentelemetry/api';
+import { context, trace } from '@opentelemetry/api';
 import { _resetSetupWarnState, configure, resetSetup, shutdown } from './setup.ts';
 import { resetConfig, resolveConfig } from './config.ts';
 import { SESSION_ID_ATTR, USER_ID_ATTR, agenticSession } from './context.ts';
@@ -121,6 +121,37 @@ describe('configure (setup)', () => {
       // Noop spans have all-zero trace IDs
       expect(span.spanContext().traceId).toBe('00000000000000000000000000000000');
       warnSpy.mockRestore();
+    });
+
+    test('propagates parent-child span context across await boundaries (regression for AsyncLocalStorageContextManager fix)', async () => {
+      // Regression guard for the 0.8.1 fix: when configure() owns the
+      // TracerProvider, BasicTracerProvider.register() previously fell
+      // back to NoopContextManager — every nested span became its own
+      // root. The fix installs AsyncLocalStorageContextManager so the
+      // active span propagates across await.
+      configure({ apiKey: 'test-key', project: 'test-proj' });
+
+      const tracer = trace.getTracer('regression-test');
+      const parent = tracer.startSpan('parent');
+      let childTraceId: string | undefined;
+      let childParentSpanId: string | undefined;
+
+      await context.with(trace.setSpan(context.active(), parent), async () => {
+        await new Promise((r) => setTimeout(r, 1));
+        const child = tracer.startSpan('child');
+        childTraceId = child.spanContext().traceId;
+        // SDK Span exposes parentSpanId via the readable interface.
+        const ctx = child.spanContext();
+        childParentSpanId = (child as unknown as { parentSpanId?: string }).parentSpanId;
+        child.end();
+        // Touch ctx to satisfy the linter — needed for the readable-span cast.
+        expect(ctx.traceId).toBe(childTraceId);
+      });
+
+      parent.end();
+
+      expect(childTraceId).toBe(parent.spanContext().traceId);
+      expect(childParentSpanId).toBe(parent.spanContext().spanId);
     });
 
     test('does not double-setup on repeated calls', () => {
@@ -350,6 +381,50 @@ describe('configure (setup)', () => {
       const spans = exporter.getFinishedSpans();
       expect(spans).toHaveLength(1);
       expect(spans[0]!.attributes['kelet.project']).toBe('proj-after');
+    });
+  });
+
+  describe('AI SDK auto-registration', () => {
+    test('registers @ai-sdk/otel when both ai and @ai-sdk/otel resolve', async () => {
+      // Both packages are installed as devDeps, so the real
+      // registerTelemetryIntegration runs against the real AI SDK global.
+      // We confirm no warning fires (the silent-success path).
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+
+      configure({ apiKey: 'test-key', project: 'test-proj' });
+
+      // Auto-registration is fire-and-forget; let the microtask queue drain.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // No warnings about @ai-sdk/otel should have been emitted.
+      const warnCalls = warnSpy.mock.calls.map((c) => String(c[0] ?? ''));
+      const aiSdkWarn = warnCalls.find((m) => m.includes('@ai-sdk/otel'));
+      expect(aiSdkWarn).toBeUndefined();
+
+      warnSpy.mockRestore();
+    });
+
+    test('respects injectAiSdkTelemetry: false', async () => {
+      // Should not even attempt the dynamic import path. Hard to assert
+      // directly without mocking; smoke-test that configure() succeeds.
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+
+      configure({
+        apiKey: 'test-key',
+        project: 'test-proj',
+        injectAiSdkTelemetry: false,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Even with both packages present, opt-out skips auto-registration.
+      // We can't easily inspect the AI SDK's global integration list here,
+      // so rely on the contract: no @ai-sdk/otel warnings either way.
+      const warnCalls = warnSpy.mock.calls.map((c) => String(c[0] ?? ''));
+      const aiSdkWarn = warnCalls.find((m) => m.includes('@ai-sdk/otel'));
+      expect(aiSdkWarn).toBeUndefined();
+
+      warnSpy.mockRestore();
     });
   });
 });

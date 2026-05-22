@@ -42,14 +42,11 @@ pnpm add kelet @opentelemetry/api @opentelemetry/sdk-trace-node @opentelemetry/e
 # yarn
 yarn add kelet @opentelemetry/api @opentelemetry/sdk-trace-node @opentelemetry/exporter-trace-otlp-http
 
-# bun (note: automatic reasoning capture not supported, see below)
+# bun
 bun add kelet @opentelemetry/api @opentelemetry/sdk-trace-node @opentelemetry/exporter-trace-otlp-http
 ```
 
-For reasoning capture, also install the instrumentation package:
-```bash
-npm install @opentelemetry/instrumentation
-```
+For Vercel AI SDK reasoning capture, the right peers depend on your `ai` version — see [Reasoning Capture for Vercel AI SDK](#reasoning-capture-for-vercel-ai-sdk) below.
 
 Set your API key:
 
@@ -269,67 +266,57 @@ The integration is installed automatically by `configure()` when `@anthropic-ai/
 
 ## Reasoning Capture for Vercel AI SDK
 
-Vercel AI SDK's telemetry currently doesn't include reasoning/thinking content in spans ([vercel/ai#8823](https://github.com/vercel/ai/issues/8823)). Until an official fix, you can use this hook to capture reasoning from models that support extended thinking (like Claude with `reasoningConfig`).
+The right setup depends on which version of `ai` you're on. `configure()` auto-detects and does the right thing in v6 / v7+; v4–v5 still need the legacy entry points.
 
-### Prerequisites
+| `ai` version | What you do | What you get |
+|---|---|---|
+| `^4.x`, `^5.x` | Use `kelet/aisdk` import OR `--import kelet/reasoning/register` | `ai.response.reasoning` span attribute |
+| `^6.0.74+` | Just call `configure()` — nothing else | `ai.response.reasoning` (emitted natively by AI SDK) |
+| `^7.0.0-beta+` | `npm i @ai-sdk/otel`, then `configure()` | Full OpenTelemetry GenAI semconv via `@ai-sdk/otel` |
 
-The reasoning hook requires these peer dependencies:
+### v6.0.74+ (recommended)
 
-```bash
-npm install @opentelemetry/instrumentation @opentelemetry/sdk-trace-base @opentelemetry/sdk-trace-node
+```typescript
+import { configure } from 'kelet';
+configure({ apiKey: process.env.KELET_API_KEY!, project: 'my-project' });
+// generateText/streamText with experimental_telemetry: { isEnabled: true }
+// now writes ai.response.reasoning natively. Nothing else needed.
 ```
 
-### Node.js (Recommended)
-
-The automatic hook works with Node.js 18.19+ using ESM loaders:
+### v7-beta + `@ai-sdk/otel` (gen_ai semconv)
 
 ```bash
-# JavaScript
-node --import kelet/reasoning/register app.js
+npm install ai@^7.0.0-beta @ai-sdk/otel
+```
 
-# TypeScript (using tsx)
+```typescript
+import { configure } from 'kelet';
+configure({ apiKey, project: 'my-project' });
+// configure() auto-registers `@ai-sdk/otel`'s OpenTelemetry integration.
+// Every generateText/streamText emits gen_ai.input.messages,
+// gen_ai.output.messages (with reasoning parts), gen_ai.system_instructions,
+// gen_ai.provider.name, gen_ai.operation.name.
+```
+
+Pass `injectAiSdkTelemetry: false` to `configure()` to opt out of auto-registration (e.g., when you want a custom `OpenTelemetry({tracer, enrichSpan})`).
+
+### v4 / v5 (legacy paths)
+
+Vercel AI SDK didn't emit reasoning text in telemetry until `ai@6.0.74`. For consumers stuck on v4 or v5, two entry points are still shipped:
+
+**Loader hook (Node 18.19+):**
+```bash
+node --import kelet/reasoning/register app.js
 npx tsx --import kelet/reasoning/register app.ts
 ```
 
-The hook intercepts AI SDK's `generateText` and `streamText` functions using `import-in-the-middle`. When a response includes reasoning, it's captured as span attributes:
-- `ai.response.reasoning` - the full reasoning text
-- `ai.reasoning.length` - character count
-
-### Bun (or Alternative Import Approach)
-
-> **Note:** Bun does not support automatic module interception ([bun#3775](https://github.com/oven-sh/bun/issues/3775)). Use the `kelet/aisdk` import instead.
-
-Simply change your import from `'ai'` to `'kelet/aisdk'`:
-
+**Drop-in (Bun, or when you can't pass `--import`):**
 ```typescript
-// Change this:
-import { generateText, streamText } from 'ai';
-
-// To this:
+// Replace the import:
 import { generateText, streamText, wrapExporter } from 'kelet/aisdk';
 ```
 
-Then wrap your exporter in your OTEL setup (one-time):
-
-```typescript
-import { wrapExporter } from 'kelet/aisdk';
-import { NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
-import { KeletExporter } from 'kelet';
-
-const provider = new NodeTracerProvider();
-const exporter = new KeletExporter({ apiKey: process.env.KELET_API_KEY });
-
-// Wrap exporter to allow reasoning capture before export
-provider.addSpanProcessor(new SimpleSpanProcessor(wrapExporter(exporter)));
-provider.register();
-```
-
-That's it! Reasoning will be captured automatically.
-
-**Alternative: Use Node.js via tsx** for fully automatic instrumentation (no code changes):
-```bash
-npx tsx --import kelet/reasoning/register app.ts
-```
+Both add `ai.response.reasoning` to the AI SDK span. Plan to remove the legacy paths in a future major when v4/v5 reach end-of-life — until then they remain available.
 
 ---
 
@@ -354,7 +341,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 for await (const msg of query({ prompt: 'hello' })) { /* ... */ }
 ```
 
-> **Note:** Node ESM and Bun freeze module namespace bindings, so post-import patching cannot wrap destructured imports like `import { query } from '@anthropic-ai/claude-agent-sdk'`. Layer A (`process.env` injection) covers the common case anyway. If you also pass a custom `options.env` (which would otherwise wipe `process.env` from the spawned subprocess), use the loader or shim below.
+> **Note:** Node ESM and Bun freeze module namespace bindings, so post-import patching cannot wrap destructured imports like `import { query } from '@anthropic-ai/claude-agent-sdk'`. Layer A (`process.env` injection) covers the common case anyway. If you also pass a custom `options.env` (which would otherwise wipe `process.env` from the spawned subprocess), use the loader or shim below. Both Layer A and Layer B emit the `claude_code.sdk_query` wrapper span (under scope `kelet.claude_agent_sdk`) and share an internal sentinel (`WRAPPER_BRACKETED_MARKER`) so the same `query()` call never gets bracketed twice when both install paths run in one process.
 
 ### Loader (Node.js)
 
