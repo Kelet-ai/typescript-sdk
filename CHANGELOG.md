@@ -1,3 +1,17 @@
+# [0.10.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.8.1...v0.10.0) (2026-05-22)
+
+
+### Bug Fixes
+
+* **claude-agent-sdk:** isBracketed early-return + drop @ai-sdk/provider peer ([ef17617](https://github.com/kelet-ai/typescript-sdk/commit/ef17617c9f259c36fb4435112f2412e1d8487382))
+
+
+### Features
+
+* **claude-agent-sdk:** Slice C session grouping + @ai-sdk/otel auto-registration ([3ee5178](https://github.com/kelet-ai/typescript-sdk/commit/3ee517845d1f38a58a8b0d1f3143d6174bd1e4e1))
+
+
+
 ## [0.8.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.8.0...v0.8.1) (2026-05-21)
 
 
@@ -46,15 +60,6 @@
 
 * **claude-agent-sdk:** slim stream observer + docs ([daa1833](https://github.com/kelet-ai/typescript-sdk/commit/daa18335ebbac8a3c5f4f57a77a41f126372f990))
 * **setup:** install LoggerProvider for OTLP log export ([0ec1df5](https://github.com/kelet-ai/typescript-sdk/commit/0ec1df5d869e9f05b479820f00f78d9f6c1e168d))
-
-
-
-## [0.5.3](https://github.com/kelet-ai/typescript-sdk/compare/v0.5.2...v0.5.3) (2026-04-21)
-
-
-### Bug Fixes
-
-* **configure:** warn-and-no-op on missing KELET_API_KEY instead of crashing ([6e91fc6](https://github.com/kelet-ai/typescript-sdk/commit/6e91fc6222a7b869a545775b101001883bdc0dc3))
 
 
 
