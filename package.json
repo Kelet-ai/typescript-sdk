@@ -118,8 +118,7 @@
     "@temporalio/common": "^1.17.0",
     "@temporalio/plugin": "^1.17.0",
     "@temporalio/interceptors-opentelemetry": "^1.17.0",
-    "@temporalio/activity": "^1.17.0",
-    "@ai-sdk/provider": "^3.0.2 || ^4.0.0-beta"
+    "@temporalio/activity": "^1.17.0"
   },
   "peerDependenciesMeta": {
     "@anthropic-ai/claude-agent-sdk": {
