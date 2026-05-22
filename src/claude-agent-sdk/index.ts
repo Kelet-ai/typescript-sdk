@@ -40,6 +40,7 @@ import {
 } from '@opentelemetry/sdk-logs';
 import type { Resource } from '@opentelemetry/resources';
 import { observeAssistantMessage, REASONING_EVENT_NAME } from './streamObserver';
+import { bracketAsyncIterable, isBracketed, markBracketed } from './wrapperSpan';
 
 /**
  * Scope name the Kelet server accepts on ``/api/logs``. The server filter
@@ -158,15 +159,28 @@ function getLogger(): Logger {
  * Wrap a message-stream factory so each yielded ``AssistantMessage`` is
  * observed for ``ThinkingBlock``s. Non-iterator properties on the returned
  * stream (``interrupt``, ``setPermissionMode``, etc.) are preserved.
+ *
+ * ``bracketWrapperSpan`` controls whether the iteration is also bracketed
+ * with a ``claude_code.sdk_query`` span (scope ``kelet.claude_agent_sdk``)
+ * for the server's per-session reconciler. Module-level ``query()`` opts
+ * in (each invocation gets its own span window). ``ClaudeSDKClient``
+ * method overrides opt out — the client's connect→disconnect lifetime
+ * already covers all per-method calls under one span.
  */
-function wrapStream(factory: () => MessageStream): MessageStream {
+function wrapStream(
+  factory: () => MessageStream,
+  bracketWrapperSpan = false,
+): MessageStream {
   const source = factory();
   const logger = getLogger();
+  const bracketed: AsyncIterable<unknown> = bracketWrapperSpan
+    ? bracketAsyncIterable(source)
+    : source;
 
   async function* iterate(): AsyncGenerator<unknown, void, unknown> {
     let stickySessionId: string | undefined;
     try {
-      for await (const item of source) {
+      for await (const item of bracketed) {
         try {
           stickySessionId = observeAssistantMessage(
             item,
@@ -232,19 +246,28 @@ export function installReasoningObserver<T extends ClaudeAgentSDKModule>(sdk: T)
     return sdk;
   }
 
+  // If `configure()` already ran Layer B (`installClaudeAgentSDK` →
+  // `wrapQuery`), `sdk.query` is already a wrapper-span-bracketed
+  // function. Re-bracketing here would emit two overlapping spans per
+  // user `query()` call and confuse the server's per-session reconciler.
+  // Detect via the shared sentinel and skip our own bracket.
+  const layerBAlreadyBracketed = isBracketed(sdk.query);
   const origQuery = sdk.query.bind(sdk);
   // Use rest args so a future SDK that accepts multiple positionals
   // (Python's ``ClaudeSDKClient.query(prompt, session_id)`` precedent)
   // doesn't silently lose arguments to the wrapper. TS
   // ``ClaudeAgentSDKModule.query`` is typed single-arg but we forward
   // via an ``unknown[]`` rest to survive SDK evolution.
-  (sdk as unknown as Record<string, unknown>).query = (
-    ...args: unknown[]
-  ): MessageStream => {
-    return wrapStream(() =>
-      (origQuery as unknown as (...a: unknown[]) => MessageStream)(...args),
+  const wrappedQuery = (...args: unknown[]): MessageStream => {
+    return wrapStream(
+      () => (origQuery as unknown as (...a: unknown[]) => MessageStream)(...args),
+      !layerBAlreadyBracketed, // don't double-bracket if Layer B beat us to it
     );
   };
+  // Stamp the replacement either way so a Layer B that runs *after* us
+  // detects the bracket and skips its own.
+  markBracketed(wrappedQuery);
+  (sdk as unknown as Record<string, unknown>).query = wrappedQuery;
 
   const OriginalClient: ClaudeSDKClientCtor | undefined = sdk.ClaudeSDKClient;
   if (typeof OriginalClient === 'function') {

@@ -3,7 +3,7 @@
  * @module setup
  */
 
-import { trace } from '@opentelemetry/api';
+import { type ContextManager, trace } from '@opentelemetry/api';
 // Static import of our own sibling module — always ESM-resolvable — so
 // ``_autoInstallReasoningObserver`` doesn't reach for ``require()`` on
 // our own code. The third-party ``@anthropic-ai/claude-agent-sdk``
@@ -23,6 +23,7 @@ import {
   type KeletConfigOptions,
 } from './config';
 import { KeletSpanProcessor } from './processor';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import {
   SimpleSpanProcessor,
@@ -81,6 +82,20 @@ export interface ConfigureOptions extends KeletConfigOptions {
    * @default true
    */
   injectCcTelemetry?: boolean;
+  /**
+   * Auto-register the `@ai-sdk/otel` integration (gen_ai semconv) when both
+   * `ai` (>= 6.0.74) and `@ai-sdk/otel` are resolvable. Captures
+   * `gen_ai.input.messages`, `gen_ai.output.messages` (with reasoning parts),
+   * `gen_ai.system_instructions`, etc., on every `generateText` / `streamText`
+   * call without per-call `experimental_telemetry` boilerplate.
+   *
+   * Set `false` to opt out — useful when the host already calls
+   * `registerTelemetryIntegration()` manually with a custom `OpenTelemetry`
+   * config (e.g., a non-default tracer or `enrichSpan` callback).
+   *
+   * @default true
+   */
+  injectAiSdkTelemetry?: boolean;
 }
 
 let _configured = false;
@@ -109,6 +124,32 @@ function _buildKeletResource(config: KeletConfig): Resource {
     [SemanticResourceAttributes.SERVICE_NAME]: config.project || 'kelet',
     'kelet.project': config.project,
   });
+}
+
+/**
+ * Best-effort construction of an async-context-manager so the OTel
+ * context API can propagate the active span across ``await`` boundaries
+ * in Node.js. Returns ``undefined`` in environments where:
+ *
+ * - ``async_hooks`` is unavailable (some edge runtimes).
+ * - ``AsyncLocalStorage`` itself can't be enabled.
+ *
+ * Falling back to ``undefined`` keeps the previous behavior (``NoopContextManager``)
+ * so we never crash a host that runs in an unusual JS runtime.
+ */
+function _maybeBuildAsyncContextManager(): ContextManager | undefined {
+  try {
+    return new AsyncLocalStorageContextManager().enable();
+  } catch (err) {
+    if (process.env.KELET_DEBUG) {
+      console.warn(
+        '[kelet] AsyncLocalStorageContextManager could not be enabled; ' +
+          'parent-child span propagation across await boundaries may break. Cause:',
+        err,
+      );
+    }
+    return undefined;
+  }
 }
 
 function _registerExitHooks(): void {
@@ -176,6 +217,7 @@ export function configure(options: ConfigureOptions = {}): void {
     spanProcessor,
     strict = false,
     injectCcTelemetry = true,
+    injectAiSdkTelemetry = true,
     ...configOptions
   } = options;
 
@@ -243,7 +285,15 @@ export function configure(options: ConfigureOptions = {}): void {
     // default derived from the Kelet project slug.
     _provider = new BasicTracerProvider({ resource: keletResource });
     _provider.addSpanProcessor(processor);
-    _provider.register();
+    // ``BasicTracerProvider.register()`` without an explicit
+    // ``contextManager`` falls back to OTel's ``NoopContextManager``, which
+    // breaks parent-child span propagation across ``await`` boundaries —
+    // every nested span becomes the root of a fresh trace. ``NodeTracerProvider``
+    // installs ``AsyncLocalStorageContextManager`` automatically, but we use
+    // ``BasicTracerProvider`` (smaller dep surface). Install it manually on
+    // Node so AI SDK / multi-step generations link into a single trace.
+    const contextManager = _maybeBuildAsyncContextManager();
+    _provider.register(contextManager ? { contextManager } : undefined);
   }
 
   _activeProcessors.push(processor);
@@ -259,8 +309,89 @@ export function configure(options: ConfigureOptions = {}): void {
 
   _autoInstallReasoningObserver(config, keletResource);
 
+  if (injectAiSdkTelemetry) {
+    void _installAiSdkOtel();
+  }
+
   _registerExitHooks();
   _configured = true;
+}
+
+/**
+ * Best-effort auto-registration of the ``@ai-sdk/otel`` telemetry
+ * integration when both ``ai`` and ``@ai-sdk/otel`` resolve. Calls
+ * ``registerTelemetryIntegration(new OpenTelemetry())`` so every
+ * ``generateText`` / ``streamText`` call emits gen_ai semconv attributes
+ * (``gen_ai.input.messages``, ``gen_ai.output.messages`` with reasoning
+ * parts, ``gen_ai.system_instructions``, ``gen_ai.provider.name``,
+ * ``gen_ai.operation.name``) on the global tracer provider Kelet just
+ * registered.
+ *
+ * Skips silently when ``ai`` isn't a dep (consumer not using AI SDK).
+ * Logs a soft hint when ``ai`` resolves but ``@ai-sdk/otel`` doesn't,
+ * suggesting ``npm i @ai-sdk/otel`` for richer capture.
+ *
+ * Failure is swallowed — host app doesn't depend on this succeeding.
+ */
+async function _installAiSdkOtel(): Promise<void> {
+  let aiMod: Record<string, unknown> | undefined;
+  try {
+    aiMod = (await import('ai')) as unknown as Record<string, unknown>;
+  } catch {
+    // Consumer doesn't use the AI SDK — silent skip.
+    return;
+  }
+
+  const register = aiMod.registerTelemetryIntegration as
+    | ((i: unknown) => void)
+    | undefined;
+  if (typeof register !== 'function') {
+    if (process.env.KELET_DEBUG) {
+      console.warn(
+        '[kelet] @ai-sdk/otel auto-registration skipped: `ai` is < 6.0.74 ' +
+          '(missing registerTelemetryIntegration). Upgrade to ai@^6.0.74 ' +
+          'for gen_ai semconv capture.',
+      );
+    }
+    return;
+  }
+
+  let otelMod: Record<string, unknown> | undefined;
+  try {
+    otelMod = (await import('@ai-sdk/otel')) as unknown as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    console.warn(
+      '[kelet] AI SDK detected but `@ai-sdk/otel` is not installed — ' +
+        'gen_ai semconv telemetry disabled. Run `npm i @ai-sdk/otel` ' +
+        'to enable richer capture, or pass `injectAiSdkTelemetry: false` ' +
+        'to suppress this warning.',
+    );
+    return;
+  }
+
+  const OpenTelemetry = otelMod.OpenTelemetry as
+    | (new () => unknown)
+    | undefined;
+  if (typeof OpenTelemetry !== 'function') {
+    if (process.env.KELET_DEBUG) {
+      console.warn(
+        '[kelet] @ai-sdk/otel resolved but does not export OpenTelemetry — ' +
+          'auto-registration skipped.',
+      );
+    }
+    return;
+  }
+
+  try {
+    register(new OpenTelemetry());
+  } catch (err) {
+    if (process.env.KELET_DEBUG) {
+      console.warn('[kelet] @ai-sdk/otel auto-registration failed:', err);
+    }
+  }
 }
 
 /**

@@ -13,6 +13,7 @@
 import type { KeletConfig } from '../config';
 import { buildCcEnv, mergeIntoOptions } from './envInjection';
 import { observeAssistantMessage, REASONING_EVENT_NAME } from './streamObserver';
+import { bracketAsyncIterable, isBracketed, markBracketed } from './wrapperSpan';
 
 export { REASONING_EVENT_NAME } from './streamObserver';
 
@@ -151,6 +152,17 @@ export function wrapQuery<F extends (...args: unknown[]) => AsyncIterable<unknow
   configResolver: () => KeletConfig | null,
   ClaudeAgentOptionsCtor: (new () => AgentOptionsLike) | null
 ): F {
+  // Reverse install order (e.g. host calls Layer B → A → B again)
+  // would otherwise double-wrap: the new wrapped function calls
+  // original() — which is itself already a wrapped + bracketed
+  // function — and then brackets again, emitting two
+  // `claude_code.sdk_query` spans per call.
+  //
+  // If `original` is already marked, return it untouched so the
+  // second install is a no-op. Marker is process-wide via Symbol.for.
+  if (isBracketed(original)) {
+    return original;
+  }
   const wrapped = function (this: unknown, ...args: unknown[]): AsyncIterable<unknown> {
     // The TS SDK query signature: query({ prompt, options? })
     // options is nested inside the first arg, not a separate positional arg.
@@ -171,8 +183,21 @@ export function wrapQuery<F extends (...args: unknown[]) => AsyncIterable<unknow
       }
     }
     const inner = original.apply(this, args);
-    return observeAsyncIterable(inner);
+    // Bracket the entire iteration with a `claude_code.sdk_query` span
+    // (scope `kelet.claude_agent_sdk`) so the Kelet server's per-session
+    // reconciler can roll multi-`query()` workflows under one Kelet
+    // session — see ./wrapperSpan.ts for the contract.
+    //
+    // Skip the bracket when `original` is already marked: this happens
+    // on reverse install order (e.g., Layer B → A → B again) where a
+    // prior `wrapQuery` call already wrapped the same target. Without
+    // this guard we'd emit duplicate wrapper spans per `query()` call.
+    return bracketAsyncIterable(observeAsyncIterable(inner));
   };
+  // Stamp the replacement so a later `wrapQuery` call sees us as
+  // already-bracketed and skips re-wrapping. See `isBracketed` check
+  // below.
+  markBracketed(wrapped);
   return wrapped as unknown as F;
 }
 
