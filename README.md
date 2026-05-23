@@ -5,6 +5,15 @@
 
   <p><strong>Agent failures take weeks to diagnose manually. Kelet runs 24/7 deep diagnosis and suggests targeted fixes.</strong></p>
 
+  <p>
+    <a href="https://www.npmjs.com/package/kelet"><img src="https://img.shields.io/npm/v/kelet.svg?logo=npm&color=cb3837" alt="npm version"></a>
+    <a href="https://www.npmjs.com/package/kelet"><img src="https://img.shields.io/npm/dm/kelet.svg?logo=npm&color=cb3837" alt="npm downloads"></a>
+    <a href="https://github.com/Kelet-ai/typescript-sdk/blob/master/LICENSE"><img src="https://img.shields.io/npm/l/kelet.svg?color=blue" alt="License"></a>
+    <a href="https://github.com/Kelet-ai/typescript-sdk/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/Kelet-ai/typescript-sdk/test.yml?branch=master&logo=github&label=tests" alt="Tests"></a>
+    <a href="https://github.com/Kelet-ai/typescript-sdk/actions/workflows/npm-publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/Kelet-ai/typescript-sdk/npm-publish.yml?branch=master&logo=github&label=publish" alt="Publish"></a>
+    <a href="https://docs.npmjs.com/generating-provenance-statements"><img src="https://img.shields.io/badge/provenance-signed-44CC11?logo=sigstore&logoColor=white" alt="Signed provenance"></a>
+  </p>
+
   <img src=".github/illustration.png" alt="Kelet workflow" width="700">
 </div>
 
