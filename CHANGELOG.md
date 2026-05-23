@@ -1,3 +1,12 @@
+## [0.10.2](https://github.com/kelet-ai/typescript-sdk/compare/v0.10.1...v0.10.2) (2026-05-23)
+
+
+### Bug Fixes
+
+* **ci:** use npm publish for OIDC trusted publishing ([538b430](https://github.com/kelet-ai/typescript-sdk/commit/538b430f3a2703abeb52ced07cd8ec6318482296))
+
+
+
 ## [0.10.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.10.0...v0.10.1) (2026-05-23)
 
 
@@ -44,15 +53,6 @@
 ### Features
 
 * **claude-agent-sdk:** auto-inject OTLP env vars + reasoning capture (KEL-406) ([2f97b69](https://github.com/kelet-ai/typescript-sdk/commit/2f97b696cf7d93518f5e4e332761845d6014244a))
-
-
-
-# [0.7.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.6.0...v0.7.0) (2026-05-18)
-
-
-### Features
-
-* **temporal:** KeletPlugin for one-line Temporal integration ([65ec131](https://github.com/kelet-ai/typescript-sdk/commit/65ec13136a4e6838e903e947cae3ae2036964765))
 
 
 
