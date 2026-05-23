@@ -51,5 +51,14 @@ jobs:
       - name: Upgrade npm for Trusted Publishing support
         run: npm install -g npm@latest
 
+      - name: Debug OIDC environment
+        run: |
+          echo "node: $(node --version)"
+          echo "npm:  $(npm --version)"
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL set: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set: ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:+yes}"
+          echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
+          echo "GITHUB_WORKFLOW_REF: $GITHUB_WORKFLOW_REF"
+
       - name: Publish to NPM
         run: npm publish --access public
