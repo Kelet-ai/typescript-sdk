@@ -1,3 +1,13 @@
+## [0.10.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.10.0...v0.10.1) (2026-05-23)
+
+
+### Bug Fixes
+
+* **claude-agent-sdk:** make Layer A process.env injection synchronous in configure() ([643ca57](https://github.com/kelet-ai/typescript-sdk/commit/643ca57fe1877e7c779db0bb4accd6e35e1484b8))
+* **setup:** export _syncLayerAForTest and fix fire-once test to test actual guard ([dbdef3b](https://github.com/kelet-ai/typescript-sdk/commit/dbdef3b15af322aecea6032fd5e30dc76fd61b2c))
+
+
+
 # [0.10.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.8.1...v0.10.0) (2026-05-22)
 
 
@@ -43,23 +53,6 @@
 ### Features
 
 * **temporal:** KeletPlugin for one-line Temporal integration ([65ec131](https://github.com/kelet-ai/typescript-sdk/commit/65ec13136a4e6838e903e947cae3ae2036964765))
-
-
-
-# [0.6.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.5.3...v0.6.0) (2026-04-28)
-
-
-### Bug Fixes
-
-* **cc:** ESM-safe SDK probe + sticky session captured before finality gate ([813c6b6](https://github.com/kelet-ai/typescript-sdk/commit/813c6b6317dbc7e14726a7b2cf11001e475ff283)), closes [#10](https://github.com/kelet-ai/typescript-sdk/issues/10) [#B1](https://github.com/kelet-ai/typescript-sdk/issues/B1) [#B2](https://github.com/kelet-ai/typescript-sdk/issues/B2)
-* **kel-391:** address PR [#10](https://github.com/kelet-ai/typescript-sdk/issues/10) review blockers (no global clobber, finality, sticky session) ([718e821](https://github.com/kelet-ai/typescript-sdk/commit/718e8210e90205a8b39259deca01aec19ac22ad9)), closes [#1](https://github.com/kelet-ai/typescript-sdk/issues/1) [#2](https://github.com/kelet-ai/typescript-sdk/issues/2) [#4](https://github.com/kelet-ai/typescript-sdk/issues/4) [#5](https://github.com/kelet-ai/typescript-sdk/issues/5) [#6](https://github.com/kelet-ai/typescript-sdk/issues/6) [#7](https://github.com/kelet-ai/typescript-sdk/issues/7) [#9](https://github.com/kelet-ai/typescript-sdk/issues/9)
-* **tests:** TS2352 cast via unknown on AsyncGenerator → AsyncIterable & Record ([4e4775f](https://github.com/kelet-ai/typescript-sdk/commit/4e4775f412afbd0b38497a1a1285ef05a777691b))
-
-
-### Features
-
-* **claude-agent-sdk:** slim stream observer + docs ([daa1833](https://github.com/kelet-ai/typescript-sdk/commit/daa18335ebbac8a3c5f4f57a77a41f126372f990))
-* **setup:** install LoggerProvider for OTLP log export ([0ec1df5](https://github.com/kelet-ai/typescript-sdk/commit/0ec1df5d869e9f05b479820f00f78d9f6c1e168d))
 
 
 
