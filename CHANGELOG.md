@@ -1,3 +1,12 @@
+## [0.10.3](https://github.com/kelet-ai/typescript-sdk/compare/v0.10.2...v0.10.3) (2026-05-23)
+
+
+### Bug Fixes
+
+* **ci:** drop setup-node registry-url and bump npm for Trusted Publishing ([b44b7d0](https://github.com/kelet-ai/typescript-sdk/commit/b44b7d0d5ba7feab5b5fb07b7b7f0f98569c43e8)), closes [oven-sh/bun#29374](https://github.com/oven-sh/bun/issues/29374)
+
+
+
 ## [0.10.2](https://github.com/kelet-ai/typescript-sdk/compare/v0.10.1...v0.10.2) (2026-05-23)
 
 
@@ -37,22 +46,6 @@
 ### Bug Fixes
 
 * **claude-agent-sdk:** inject CC trace-export beta gate + log-content vars ([25b0883](https://github.com/kelet-ai/typescript-sdk/commit/25b08835e58ad0028d99c68d353641bd3b1aeaeb))
-
-
-
-# [0.8.0](https://github.com/kelet-ai/typescript-sdk/compare/v0.7.0...v0.8.0) (2026-05-20)
-
-
-### Bug Fixes
-
-* **ci:** add ai to devDependencies so typecheck resolves src/aisdk.ts ([fb89839](https://github.com/kelet-ai/typescript-sdk/commit/fb898397f8d21788d91a2e50a5c2d3c3e9abc676))
-* **claude-agent-sdk:** correct wrapQuery arg shape, remove ClaudeSDKClient (TS-only), and fix Layer A/B consistency ([660721f](https://github.com/kelet-ai/typescript-sdk/commit/660721f40afc59265e0f9e6025d9482b6ccb1983))
-* **claude-agent-sdk:** materialize options as plain object when ClaudeAgentOptionsCtor unavailable ([4aa9c10](https://github.com/kelet-ai/typescript-sdk/commit/4aa9c101d2bdc725b31ccc4da9932e28621eb90e))
-
-
-### Features
-
-* **claude-agent-sdk:** auto-inject OTLP env vars + reasoning capture (KEL-406) ([2f97b69](https://github.com/kelet-ai/typescript-sdk/commit/2f97b696cf7d93518f5e4e332761845d6014244a))
 
 
 
