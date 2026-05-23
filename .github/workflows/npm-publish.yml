@@ -48,22 +48,5 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Debug OIDC environment
-        run: |
-          echo "=== node/npm versions ==="
-          node --version
-          npm --version
-          echo "=== OIDC env vars ==="
-          echo "ACTIONS_ID_TOKEN_REQUEST_URL set: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
-          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set: ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:+yes}"
-          echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
-          echo "GITHUB_WORKFLOW_REF: $GITHUB_WORKFLOW_REF"
-          echo "=== existing npmrc files ==="
-          ls -la ~/.npmrc 2>/dev/null || echo "no ~/.npmrc"
-          ls -la ./.npmrc 2>/dev/null || echo "no ./.npmrc"
-          echo "NPM_CONFIG_USERCONFIG=$NPM_CONFIG_USERCONFIG"
-          echo "=== npm config (effective) ==="
-          npm config ls -l 2>&1 | grep -iE "registry|auth|provenance|trust" | head -20
-
       - name: Publish to NPM
-        run: npm publish --access public --provenance --loglevel=verbose
+        run: npm publish --access public --provenance
