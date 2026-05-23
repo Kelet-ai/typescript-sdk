@@ -5,7 +5,13 @@ import {
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 import { context, trace } from '@opentelemetry/api';
-import { _resetSetupWarnState, configure, resetSetup, shutdown } from './setup.ts';
+import {
+  _resetSetupWarnState,
+  _syncLayerAForTest,
+  configure,
+  resetSetup,
+  shutdown,
+} from './setup.ts';
 import { resetConfig, resolveConfig } from './config.ts';
 import { SESSION_ID_ATTR, USER_ID_ATTR, agenticSession } from './context.ts';
 
@@ -425,6 +431,32 @@ describe('configure (setup)', () => {
       expect(aiSdkWarn).toBeUndefined();
 
       warnSpy.mockRestore();
+    });
+  });
+
+  describe('_syncLayerA opt-out soft warning', () => {
+    test('_warnedOptOut fires exactly once per process lifecycle (fire-once guard)', () => {
+      // Use _syncLayerAForTest to bypass the _configured early-return in configure().
+      // This directly exercises the _warnedOptOut guard inside _syncLayerA.
+      const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
+      delete process.env.CLAUDE_CODE_ENABLE_TELEMETRY;
+
+      // First call: _warnedOptOut is false (reset by afterEach) → warning fires.
+      _syncLayerAForTest(null, false);
+      const countAfterFirst = infoSpy.mock.calls.filter((c) =>
+        String(c[0] ?? '').includes('injectCcTelemetry'),
+      ).length;
+
+      // Second call within the same lifecycle: _warnedOptOut is now true → no new warning.
+      _syncLayerAForTest(null, false);
+      const countAfterSecond = infoSpy.mock.calls.filter((c) =>
+        String(c[0] ?? '').includes('injectCcTelemetry'),
+      ).length;
+
+      expect(countAfterFirst).toBe(1);
+      expect(countAfterSecond).toBe(1); // Fire-once: guard prevented second warning.
+
+      infoSpy.mockRestore();
     });
   });
 });

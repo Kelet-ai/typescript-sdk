@@ -15,6 +15,16 @@ import {
   setReasoningLogger,
   type ClaudeAgentSDKModule,
 } from './claude-agent-sdk';
+// envInjection has no OTEL peer deps — static import so Layer A fires
+// synchronously inside configure() before any subprocess can spawn.
+import {
+  populateProcessEnv,
+  formatDeferredWarning,
+  formatOptOutSoftWarning,
+} from './claude-agent-sdk/envInjection';
+// reasoningObserver is a sibling module with no OTEL peer deps — safe to
+// import statically so setInjectCcTelemetry() runs synchronously in configure().
+import { setInjectCcTelemetry } from './claude-agent-sdk/reasoningObserver';
 import {
   configure as setConfig,
   resolveConfig,
@@ -105,6 +115,7 @@ const _activeProcessors: SpanProcessor[] = [];
 const _activeLogProcessors: LogRecordProcessor[] = [];
 let _exitHooksRegistered = false;
 let _warnedDisabled = false;
+let _warnedOptOut = false;
 
 /**
  * Reset the warn-once flag. For testing only.
@@ -112,6 +123,7 @@ let _warnedDisabled = false;
  */
 export function _resetSetupWarnState(): void {
   _warnedDisabled = false;
+  _warnedOptOut = false;
 }
 
 /**
@@ -240,14 +252,20 @@ export function configure(options: ConfigureOptions = {}): void {
       );
     }
     // Even when Kelet credentials are missing, run Layer A so the soft-warning
-    // path can fire on `injectCcTelemetry: false` + missing env. Layer A
-    // returns early when config is null — see configurePopulateProcessEnv.
+    // path can fire on `injectCcTelemetry: false` + missing env.
+    _syncLayerA(null, injectCcTelemetry);
+    // Layer B (reasoning observer) still async — needs OTEL peers.
     void _installClaudeAgentSDK(null, injectCcTelemetry);
     return;
   }
 
   setSharedConfig(config);
 
+  // Layer A: set process.env OTLP keys synchronously so any subprocess spawned
+  // immediately after configure() inherits the correct env. The dynamic import
+  // in _installClaudeAgentSDK is async and would race the first query() call.
+  _syncLayerA(config, injectCcTelemetry);
+  // Layer B (reasoning observer + wrapper install): still async — needs OTEL peers.
   void _installClaudeAgentSDK(config, injectCcTelemetry);
 
   let processor: SpanProcessor;
@@ -560,6 +578,7 @@ export function resetSetup(): void {
   _activeProcessors.length = 0;
   _activeLogProcessors.length = 0;
   _warnedDisabled = false;
+  _warnedOptOut = false;
   if (_provider) {
     void _provider.shutdown();
     _provider = undefined;
@@ -601,18 +620,47 @@ export function resetSetup(): void {
  * Errors from either layer are caught and logged once; the SDK never blocks
  * `configure()` on an integration failure.
  */
+/**
+ * Layer A (synchronous): set Kelet's OTLP env keys on `process.env` before
+ * any subprocess can spawn. Uses statically-imported helpers so there's no
+ * async gap between `configure()` returning and the keys being set.
+ */
+/** @internal for testing only */
+export function _syncLayerAForTest(
+  config: KeletConfig | null,
+  injectCcTelemetry: boolean,
+): void {
+  return _syncLayerA(config, injectCcTelemetry);
+}
+
+function _syncLayerA(config: KeletConfig | null, injectCcTelemetry: boolean): void {
+  // Propagate the flag so Layer B (reasoningObserver) respects the same opt-out.
+  setInjectCcTelemetry(injectCcTelemetry);
+
+  if (!injectCcTelemetry) {
+    if (!_warnedOptOut && !process.env.CLAUDE_CODE_ENABLE_TELEMETRY) {
+      _warnedOptOut = true;
+      console.info(formatOptOutSoftWarning());
+    }
+    return;
+  }
+  if (config === null) return;
+
+  try {
+    const result = populateProcessEnv(config);
+    if (result.deferred.length > 0) {
+      console.warn(formatDeferredWarning(result.deferred));
+    }
+  } catch (err) {
+    console.warn('[kelet] CAS Layer A (process.env inject) failed:', err);
+  }
+}
+
 async function _installClaudeAgentSDK(
   config: KeletConfig | null,
   injectCcTelemetry: boolean
 ): Promise<void> {
-  // Layer A — process.env set-if-missing. Imported from envInjection directly
-  // so a missing optional OTEL peer doesn't prevent process.env population.
-  try {
-    const { configurePopulateProcessEnv } = await import('./claude-agent-sdk/index');
-    configurePopulateProcessEnv(config, { injectCcTelemetry });
-  } catch (err) {
-    console.warn('[kelet] CAS Layer A (process.env inject) failed:', err);
-  }
+  // Layer A already ran synchronously in configure() via _syncLayerA.
   // Layer B — wrap public exports; needs OTEL peers for reasoning capture.
   if (config !== null) {
     try {
