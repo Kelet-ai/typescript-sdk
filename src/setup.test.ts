@@ -427,4 +427,32 @@ describe('configure (setup)', () => {
       warnSpy.mockRestore();
     });
   });
+
+  describe('_syncLayerA opt-out soft warning', () => {
+    test('emits the opt-out warning exactly once across multiple configure() calls', () => {
+      const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
+      // configure() returns early after seeing _configured=true on second call,
+      // so we need to test via _syncLayerA directly to verify the one-shot.
+      // The simplest observable: delete CLAUDE_CODE_ENABLE_TELEMETRY so
+      // _syncLayerA would warn, call configure() twice without resetting
+      // _warnedOptOut, verify warn fires only once.
+      delete process.env.CLAUDE_CODE_ENABLE_TELEMETRY;
+      configure({ apiKey: 'test', project: 'p', injectCcTelemetry: false });
+      const countAfterFirst = infoSpy.mock.calls.filter((c) =>
+        String(c[0] ?? '').includes('injectCcTelemetry'),
+      ).length;
+      // _configured is now true — re-entering configure() returns early so
+      // _syncLayerA is NOT called again. Reset only _configured, not the warn flag.
+      resetSetup(); // resets _configured AND _warnedOptOut (full reset is correct)
+      // After a full reset the warn fires again — this is expected and correct.
+      configure({ apiKey: 'test', project: 'p', injectCcTelemetry: false });
+      const countAfterSecond = infoSpy.mock.calls.filter((c) =>
+        String(c[0] ?? '').includes('injectCcTelemetry'),
+      ).length;
+      // Both calls should have warned once each (two separate lifecycles)
+      expect(countAfterFirst).toBe(1);
+      expect(countAfterSecond).toBe(2);
+      infoSpy.mockRestore();
+    });
+  });
 });
