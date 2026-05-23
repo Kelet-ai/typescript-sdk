@@ -5,7 +5,13 @@ import {
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 import { context, trace } from '@opentelemetry/api';
-import { _resetSetupWarnState, configure, resetSetup, shutdown } from './setup.ts';
+import {
+  _resetSetupWarnState,
+  _syncLayerAForTest,
+  configure,
+  resetSetup,
+  shutdown,
+} from './setup.ts';
 import { resetConfig, resolveConfig } from './config.ts';
 import { SESSION_ID_ATTR, USER_ID_ATTR, agenticSession } from './context.ts';
 
@@ -429,29 +435,27 @@ describe('configure (setup)', () => {
   });
 
   describe('_syncLayerA opt-out soft warning', () => {
-    test('emits the opt-out warning exactly once across multiple configure() calls', () => {
+    test('_warnedOptOut fires exactly once per process lifecycle (fire-once guard)', () => {
+      // Use _syncLayerAForTest to bypass the _configured early-return in configure().
+      // This directly exercises the _warnedOptOut guard inside _syncLayerA.
       const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
-      // configure() returns early after seeing _configured=true on second call,
-      // so we need to test via _syncLayerA directly to verify the one-shot.
-      // The simplest observable: delete CLAUDE_CODE_ENABLE_TELEMETRY so
-      // _syncLayerA would warn, call configure() twice without resetting
-      // _warnedOptOut, verify warn fires only once.
       delete process.env.CLAUDE_CODE_ENABLE_TELEMETRY;
-      configure({ apiKey: 'test', project: 'p', injectCcTelemetry: false });
+
+      // First call: _warnedOptOut is false (reset by afterEach) → warning fires.
+      _syncLayerAForTest(null, false);
       const countAfterFirst = infoSpy.mock.calls.filter((c) =>
         String(c[0] ?? '').includes('injectCcTelemetry'),
       ).length;
-      // _configured is now true — re-entering configure() returns early so
-      // _syncLayerA is NOT called again. Reset only _configured, not the warn flag.
-      resetSetup(); // resets _configured AND _warnedOptOut (full reset is correct)
-      // After a full reset the warn fires again — this is expected and correct.
-      configure({ apiKey: 'test', project: 'p', injectCcTelemetry: false });
+
+      // Second call within the same lifecycle: _warnedOptOut is now true → no new warning.
+      _syncLayerAForTest(null, false);
       const countAfterSecond = infoSpy.mock.calls.filter((c) =>
         String(c[0] ?? '').includes('injectCcTelemetry'),
       ).length;
-      // Both calls should have warned once each (two separate lifecycles)
+
       expect(countAfterFirst).toBe(1);
-      expect(countAfterSecond).toBe(2);
+      expect(countAfterSecond).toBe(1); // Fire-once: guard prevented second warning.
+
       infoSpy.mockRestore();
     });
   });

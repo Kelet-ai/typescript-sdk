@@ -625,6 +625,14 @@ export function resetSetup(): void {
  * any subprocess can spawn. Uses statically-imported helpers so there's no
  * async gap between `configure()` returning and the keys being set.
  */
+/** @internal for testing only */
+export function _syncLayerAForTest(
+  config: KeletConfig | null,
+  injectCcTelemetry: boolean,
+): void {
+  return _syncLayerA(config, injectCcTelemetry);
+}
+
 function _syncLayerA(config: KeletConfig | null, injectCcTelemetry: boolean): void {
   // Propagate the flag so Layer B (reasoningObserver) respects the same opt-out.
   setInjectCcTelemetry(injectCcTelemetry);
