@@ -1,3 +1,12 @@
+## [0.10.4](https://github.com/kelet-ai/typescript-sdk/compare/v0.10.3...v0.10.4) (2026-05-23)
+
+
+### Bug Fixes
+
+* **ci:** clear NODE_AUTH_TOKEN to unblock npm OIDC Trusted Publishing ([4d31492](https://github.com/kelet-ai/typescript-sdk/commit/4d31492dd3664e4d88c9c165ac4ea04a5c603134))
+
+
+
 ## [0.10.3](https://github.com/kelet-ai/typescript-sdk/compare/v0.10.2...v0.10.3) (2026-05-23)
 
 
@@ -37,15 +46,6 @@
 ### Features
 
 * **claude-agent-sdk:** Slice C session grouping + @ai-sdk/otel auto-registration ([3ee5178](https://github.com/kelet-ai/typescript-sdk/commit/3ee517845d1f38a58a8b0d1f3143d6174bd1e4e1))
-
-
-
-## [0.8.1](https://github.com/kelet-ai/typescript-sdk/compare/v0.8.0...v0.8.1) (2026-05-21)
-
-
-### Bug Fixes
-
-* **claude-agent-sdk:** inject CC trace-export beta gate + log-content vars ([25b0883](https://github.com/kelet-ai/typescript-sdk/commit/25b08835e58ad0028d99c68d353641bd3b1aeaeb))
 
 
 
