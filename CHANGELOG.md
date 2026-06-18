@@ -1,3 +1,12 @@
+# [0.11.0](https://github.com/Kelet-ai/typescript-sdk/compare/v0.10.5...v0.11.0) (2026-06-18)
+
+
+### Features
+
+* **temporal:** derive auto session from Temporal run ID ([#21](https://github.com/Kelet-ai/typescript-sdk/issues/21)) ([86c2c2c](https://github.com/Kelet-ai/typescript-sdk/commit/86c2c2cad1bee6bf0e1086c8edc8563c33d04ff2))
+
+
+
 ## [0.10.5](https://github.com/Kelet-ai/typescript-sdk/compare/v0.10.4...v0.10.5) (2026-05-23)
 
 
@@ -31,16 +40,6 @@
 ### Bug Fixes
 
 * **ci:** use npm publish for OIDC trusted publishing ([538b430](https://github.com/Kelet-ai/typescript-sdk/commit/538b430f3a2703abeb52ced07cd8ec6318482296))
-
-
-
-## [0.10.1](https://github.com/Kelet-ai/typescript-sdk/compare/v0.10.0...v0.10.1) (2026-05-23)
-
-
-### Bug Fixes
-
-* **claude-agent-sdk:** make Layer A process.env injection synchronous in configure() ([643ca57](https://github.com/Kelet-ai/typescript-sdk/commit/643ca57fe1877e7c779db0bb4accd6e35e1484b8))
-* **setup:** export _syncLayerAForTest and fix fire-once test to test actual guard ([dbdef3b](https://github.com/Kelet-ai/typescript-sdk/commit/dbdef3b15af322aecea6032fd5e30dc76fd61b2c))
 
 
 
