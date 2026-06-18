@@ -29,7 +29,7 @@ import type {
 import { workflowInfo } from '@temporalio/workflow';
 import { agenticSession } from '../context';
 import { extract, getCurrentSessionPayload, inject } from './headers';
-import { isRunIdAutoSessionEnabled } from './workflow-autosession';
+import { isRunIdAutoSessionEnabled } from './workflow-autosession-flag';
 
 /** If the inbound headers carry a Kelet session, run ``next()`` inside an
  * ``agenticSession`` for that payload; otherwise pass through. Centralises the

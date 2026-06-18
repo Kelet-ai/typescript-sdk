@@ -449,13 +449,26 @@ describe('workflow-interceptors module', () => {
 
 describe('workflow-autosession enabler', () => {
   // The workflow VM is isolated, so KeletPlugin can't pass the flag in — it
-  // signals "enabled" by adding this module to workflowModules. Importing it
-  // here mimics the VM loading it: the top-level side effect flips the flag.
-  test('importing the enabler sets the VM-global flag', async () => {
-    const mod = (await import('./workflow-autosession')) as {
+  // signals "enabled" by adding the enabler module to workflowModules.
+  //
+  // Critical: the flag reader lives in a SEPARATE side-effect-free module
+  // (workflow-autosession-flag). The interceptor imports the reader; only the
+  // enabler module flips the flag. If they shared a module, the interceptor's
+  // static import would force the side effect on every workflow and enable the
+  // fallback unconditionally.
+  test('flag reader is off until the enabler module is loaded', async () => {
+    const flag = (await import('./workflow-autosession-flag')) as {
       isRunIdAutoSessionEnabled: () => boolean;
+      RUN_ID_AUTOSESSION_FLAG: string;
     };
-    expect(mod.isRunIdAutoSessionEnabled()).toBe(true);
+    // Importing the reader (as the interceptor does) must NOT set the flag.
+    // Defensive: clear any residue, then assert it reads false.
+    delete (globalThis as Record<string, unknown>)[flag.RUN_ID_AUTOSESSION_FLAG];
+    expect(flag.isRunIdAutoSessionEnabled()).toBe(false);
+
+    // Loading the enabler (as the VM does via workflowModules) flips it.
+    await import('./workflow-autosession');
+    expect(flag.isRunIdAutoSessionEnabled()).toBe(true);
   });
 });
 
