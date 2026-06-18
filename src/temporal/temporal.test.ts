@@ -21,7 +21,6 @@ import {
   METADATA_HEADER,
   inject,
   extract,
-  deriveSessionId,
 } from './headers';
 import { buildClientInterceptor } from './client-interceptors';
 import { buildActivityInterceptorsFactory } from './activity-interceptors';
@@ -103,24 +102,11 @@ describe('headers: inject/extract roundtrip', () => {
   });
 });
 
-describe('deriveSessionId', () => {
-  test('extracts segment after /session/', () => {
-    expect(deriveSessionId('acme/prod/session/sess-XYZ')).toBe('sess-XYZ');
-  });
-  test('returns full id when no /session/ marker', () => {
-    expect(deriveSessionId('plain-wf-id')).toBe('plain-wf-id');
-    expect(deriveSessionId('a/b/c/d')).toBe('a/b/c/d');
-  });
-  test('returns full id when /session/ is the last segment', () => {
-    expect(deriveSessionId('a/b/session')).toBe('a/b/session');
-  });
-});
-
 // ───────────────── A. Client outbound ─────────────────
 
 describe('A. Client outbound', () => {
   test('A1: agenticSession set → start stamps header', async () => {
-    const client = buildClientInterceptor(false);
+    const client = buildClientInterceptor();
     const next = mock(async (_input: unknown) => 'wf-run-id');
     await agenticSession({ sessionId: 'sess-A1' }, async () => {
       await client.start!({ workflowType: 'W', headers: {}, options: {} } as never, next);
@@ -130,7 +116,7 @@ describe('A. Client outbound', () => {
   });
 
   test('A2: no agenticSession → no header', async () => {
-    const client = buildClientInterceptor(false);
+    const client = buildClientInterceptor();
     const next = mock(async (_input: unknown) => 'wf-run-id');
     await client.start!(
       { workflowType: 'W', headers: {}, options: { workflowId: 'wf-1' } } as never,
@@ -141,7 +127,7 @@ describe('A. Client outbound', () => {
   });
 
   test('A3: session + user + metadata all stamped', async () => {
-    const client = buildClientInterceptor(false);
+    const client = buildClientInterceptor();
     const next = mock(async (_input: unknown) => 'wf-run-id');
     await agenticSession(
       { sessionId: 'sess-A3', userId: 'user-7', metadata: { tier: 'pro', count: 42 } },
@@ -161,8 +147,12 @@ describe('A. Client outbound', () => {
     });
   });
 
-  test('A4: no agenticSession + autoSession=true → derives from workflowId', async () => {
-    const client = buildClientInterceptor(true);
+  test('A4: no agenticSession + no callable → no header', async () => {
+    // Client autoSession is callable-only now: a bare client (no
+    // ``agenticSession`` wrapping, no callable resolver) emits no
+    // SESSION_HEADER even with a workflowId set. Run-ID-based derivation
+    // happens worker-side via ``activityAutoSession: true``.
+    const client = buildClientInterceptor();
     const next = mock(async (_input: unknown) => 'wf-run-id');
     await client.start!(
       {
@@ -173,7 +163,7 @@ describe('A. Client outbound', () => {
       next,
     );
     const forwarded = next.mock.calls[0]![0] as { headers: Headers };
-    expect(_decodePayloadString(forwarded.headers, SESSION_HEADER)).toBe('sess-A4');
+    expect(SESSION_HEADER in forwarded.headers).toBe(false);
   });
 
   test('A5: autoSession=callable invoked with workflowType + workflowId', async () => {
@@ -192,11 +182,11 @@ describe('A. Client outbound', () => {
     expect(_decodePayloadString(forwarded.headers, SESSION_HEADER)).toBe('derived-wf-id-99');
   });
 
-  test('A5b: autoSession=true with missing workflowId does not throw — server-generated IDs are common', async () => {
+  test('A5b: autoSession=callable with missing workflowId does not throw — server-generated IDs are common', async () => {
     // Temporal's WorkflowStartInput.options.workflowId is optional. When the
     // user calls client.start({ workflowType: 'X' }) without an explicit ID,
     // Temporal server generates one. We can't derive client-side, so skip.
-    const client = buildClientInterceptor(true);
+    const client = buildClientInterceptor((info) => `derived-${info.workflowId}`);
     const next = mock(async (_input: unknown) => 'wf-run-id');
     await expect(
       client.start!(
@@ -210,7 +200,7 @@ describe('A. Client outbound', () => {
   });
 
   test('A6: signal stamps header from agenticSession', async () => {
-    const client = buildClientInterceptor(false);
+    const client = buildClientInterceptor();
     const next = mock(async (_input: unknown) => undefined);
     await agenticSession({ sessionId: 'sess-A6' }, async () => {
       await client.signal!(
@@ -263,9 +253,9 @@ describe('E. Activity inbound', () => {
     expect(next.mock.calls.length).toBe(0); // unused
   });
 
-  test('E2: no header + autoSession=true → derives from workflowId', async () => {
+  test('E2: no header + autoSession=true → derives from runId', async () => {
     const factory = buildActivityInterceptorsFactory(true);
-    const interceptors = factory(_stubCtx('acme/prod/session/sess-E2'));
+    const interceptors = factory(_stubCtx());
     const inbound = interceptors.inbound!;
     const seen: string[] = [];
     const capturingNext = async () => {
@@ -273,7 +263,9 @@ describe('E. Activity inbound', () => {
       seen.push(getSessionId() ?? '<none>');
     };
     await inbound.execute!({ args: [], headers: {} }, capturingNext as never);
-    expect(seen).toEqual(['sess-E2']);
+    // ``_stubCtx`` stubs ``runId: 'run-1'``; with the new run-ID-based
+    // semantics, that's what we should see.
+    expect(seen).toEqual(['run-1']);
   });
 
   test('E3: no header + autoSession=false → passes through', async () => {
@@ -287,6 +279,31 @@ describe('E. Activity inbound', () => {
     };
     await inbound.execute!({ args: [], headers: {} }, capturingNext as never);
     expect(seen).toEqual(['<none>']);
+  });
+
+  test('E4: header wins over autoSession=true (one-session-per-chain)', async () => {
+    // When an inbound header IS present AND ``activityAutoSession: true``
+    // is configured, the header session takes precedence over the run-ID
+    // fallback. This pins the one-session-per-chain guarantee — downstream
+    // hops inherit the first run's session rather than minting their own
+    // run-ID-derived session.
+    const factory = buildActivityInterceptorsFactory(true);
+    const interceptors = factory(_stubCtx());
+    const inbound = interceptors.inbound!;
+    const seen: string[] = [];
+    const capturingNext = async () => {
+      const { getSessionId } = await import('../context');
+      seen.push(getSessionId() ?? '<none>');
+    };
+    await inbound.execute!(
+      {
+        args: [],
+        headers: inject({}, { sessionId: 'sess-from-header' }),
+      },
+      capturingNext as never,
+    );
+    // Header wins over the stubbed ``runId: 'run-1'``.
+    expect(seen).toEqual(['sess-from-header']);
   });
 });
 
@@ -330,42 +347,57 @@ describe('G. Plugin composition', () => {
   });
 
   test('G4: two plugin instances retain independent autoSession', async () => {
+    // Plugin-A: activity-side run-ID auto-derivation (the new ``true`` semantics
+    // live worker-side now). Plugin-B: client-side callable resolver.
     const a = new KeletPlugin({
-      autoSession: true,
+      activityAutoSession: true,
       otelPluginOptions: _otelOpts(),
     });
     const b = new KeletPlugin({
       autoSession: (info) => `custom-${info.workflowId}`,
       otelPluginOptions: _otelOpts(),
     });
-    // Plugins build independent client interceptors via clientInterceptors closure.
-    // Verify by inspecting the configured client interceptors after configureClient.
-    const cfgA = a.configureClient({ connection: {} as never });
+
+    // --- Plugin-A: verify worker-side run-ID resolution ---
+    // Pull plugin-A's activity inbound factory off configureWorker output and
+    // exercise it with no header → expect runId-based session.
+    const workerCfgA = a.configureWorker({
+      taskQueue: 'tq',
+      workflowsPath: '/dev/null',
+    } as never);
+    const activityFactoriesA = workerCfgA.interceptors?.activity ?? [];
+    // KeletPlugin appends its activity factory last, after any existing ones.
+    const factoryA = activityFactoriesA[activityFactoriesA.length - 1]!;
+    const inboundA = factoryA({
+      info: {
+        workflowExecution: { workflowId: 'wfA-id', runId: 'run-A' },
+        workflowType: 'W',
+        activityId: 'act-1',
+      },
+    } as never).inbound!;
+    const seenA: string[] = [];
+    await inboundA.execute!(
+      { args: [], headers: {} },
+      (async () => {
+        const { getSessionId } = await import('../context');
+        seenA.push(getSessionId() ?? '<none>');
+      }) as never,
+    );
+    expect(seenA).toEqual(['run-A']);
+
+    // --- Plugin-B: verify client-side callable resolution (unchanged behavior) ---
     const cfgB = b.configureClient({ connection: {} as never });
-    const wfA = Array.isArray(cfgA.interceptors?.workflow)
-      ? cfgA.interceptors!.workflow!
-      : [];
     const wfB = Array.isArray(cfgB.interceptors?.workflow)
       ? cfgB.interceptors!.workflow!
       : [];
-    // Run start through each, verify they derive different sessions.
-    const nextA = mock(async (_i: unknown) => 'wfA');
     const nextB = mock(async (_i: unknown) => 'wfB');
-    // Only call our own (Kelet) interceptors — last in each list because we
-    // append to existing OTel interceptors.
-    const keletA = wfA[wfA.length - 1]!;
+    // KeletPlugin appends its client interceptor last, after any existing ones.
     const keletB = wfB[wfB.length - 1]!;
-    await keletA.start!(
-      { workflowType: 'W', headers: {}, options: { workflowId: 'acme/session/X' } } as never,
-      nextA,
-    );
     await keletB.start!(
       { workflowType: 'W', headers: {}, options: { workflowId: 'acme/session/X' } } as never,
       nextB,
     );
-    const headersA = (nextA.mock.calls[0]![0] as { headers: Headers }).headers;
     const headersB = (nextB.mock.calls[0]![0] as { headers: Headers }).headers;
-    expect(_decodePayloadString(headersA, SESSION_HEADER)).toBe('X');
     expect(_decodePayloadString(headersB, SESSION_HEADER)).toBe('custom-acme/session/X');
   });
 

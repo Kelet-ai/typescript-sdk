@@ -16,7 +16,7 @@ import type {
 import type { Headers } from '@temporalio/common';
 
 import { getMetadata, getSessionId, getUserId } from '../context';
-import { deriveSessionId, inject, type SessionPayload } from './headers';
+import { inject, type SessionPayload } from './headers';
 import type { ClientAutoSession } from './types';
 
 function _currentSessionPayload(): SessionPayload | undefined {
@@ -31,11 +31,11 @@ function _currentSessionPayload(): SessionPayload | undefined {
 
 function _resolveStartPayload(
   input: WorkflowStartInput,
-  autoSession: ClientAutoSession,
+  autoSession: ClientAutoSession | undefined,
 ): SessionPayload | undefined {
   const fromContext = _currentSessionPayload();
   if (fromContext) return fromContext;
-  if (autoSession === false) return undefined;
+  if (!autoSession) return undefined;
 
   // ``WorkflowStartInput.options.workflowId`` is optional — when callers omit
   // it, Temporal generates one server-side. We can't derive on the client in
@@ -44,10 +44,7 @@ function _resolveStartPayload(
   const wfId = input.options.workflowId;
   if (!wfId) return undefined;
 
-  const derived =
-    autoSession === true
-      ? deriveSessionId(wfId)
-      : autoSession({ workflowType: input.workflowType, workflowId: wfId });
+  const derived = autoSession({ workflowType: input.workflowType, workflowId: wfId });
   return derived ? { sessionId: derived } : undefined;
 }
 
@@ -67,7 +64,7 @@ function _stampCurrentSession<I extends { headers: Headers }, R>(
  * apart from the autoSession config captured in the closure.
  */
 export function buildClientInterceptor(
-  autoSession: ClientAutoSession,
+  autoSession?: ClientAutoSession,
 ): WorkflowClientInterceptor {
   return {
     async start(input, next: Next<WorkflowClientInterceptor, 'start'>) {

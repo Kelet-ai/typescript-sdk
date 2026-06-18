@@ -18,7 +18,7 @@ import type {
 import type { Context as ActivityContext } from '@temporalio/activity';
 
 import { agenticSession } from '../context';
-import { deriveSessionId, extract } from './headers';
+import { extract } from './headers';
 import type { ActivityAutoSession } from './types';
 
 class KeletActivityInboundInterceptor implements ActivityInboundCallsInterceptor {
@@ -55,9 +55,8 @@ class KeletActivityInboundInterceptor implements ActivityInboundCallsInterceptor
     if (this.autoSession === true) {
       // ``workflowExecution`` is optional on Info (e.g., when an activity is
       // invoked outside a workflow context for testing), so guard before
-      // deriving.
-      const wfId = info.workflowExecution?.workflowId;
-      return wfId ? deriveSessionId(wfId) : undefined;
+      // deriving. Use the Temporal run ID — one run = one session.
+      return info.workflowExecution?.runId;
     }
     return this.autoSession(info);
   }

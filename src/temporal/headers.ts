@@ -53,20 +53,3 @@ export function extract(headers: Headers): SessionPayload | undefined {
       : undefined;
   return { sessionId, userId, metadata };
 }
-
-/** Default fallback when ``autoSession=true``: extract the segment after
- * ``/session/`` if the workflow ID follows the Kelet ``{prefix}/session/{id}``
- * convention; otherwise return the whole workflow ID.
- *
- * Mirrors Python's ``_derive_session_id``.
- */
-export function deriveSessionId(workflowId: string): string {
-  const parts = workflowId.split('/');
-  for (let i = 0; i < parts.length - 1; i++) {
-    if (parts[i] === 'session') {
-      const next = parts[i + 1];
-      if (next) return next;
-    }
-  }
-  return workflowId;
-}
