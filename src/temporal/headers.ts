@@ -10,6 +10,8 @@
 
 import { defaultPayloadConverter, type Headers } from '@temporalio/common';
 
+import { getMetadata, getSessionId, getUserId } from '../context';
+
 export const SESSION_HEADER = 'x-kelet-session-id';
 export const USER_HEADER = 'x-kelet-user-id';
 export const METADATA_HEADER = 'x-kelet-metadata';
@@ -19,6 +21,18 @@ export interface SessionPayload {
   sessionId: string;
   userId?: string;
   metadata?: Record<string, string | number | boolean>;
+}
+
+/** Snapshot the current ``agenticSession`` context as a {@link SessionPayload},
+ * or ``undefined`` when no session is active. Shared by the client- and
+ * workflow-outbound interceptors so the ``{ sessionId, userId, metadata }``
+ * shape is assembled in exactly one place. Workflow-VM-safe (reads only
+ * AsyncLocalStorage via ``../context``).
+ */
+export function getCurrentSessionPayload(): SessionPayload | undefined {
+  const sessionId = getSessionId();
+  if (!sessionId) return undefined;
+  return { sessionId, userId: getUserId(), metadata: getMetadata() };
 }
 
 /** Stamp a session payload into outbound headers. Returns the original

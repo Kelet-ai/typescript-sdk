@@ -15,25 +15,14 @@ import type {
 } from '@temporalio/client';
 import type { Headers } from '@temporalio/common';
 
-import { getMetadata, getSessionId, getUserId } from '../context';
-import { inject, type SessionPayload } from './headers';
+import { getCurrentSessionPayload, inject, type SessionPayload } from './headers';
 import type { ClientAutoSession } from './types';
-
-function _currentSessionPayload(): SessionPayload | undefined {
-  const sessionId = getSessionId();
-  if (!sessionId) return undefined;
-  return {
-    sessionId,
-    userId: getUserId(),
-    metadata: getMetadata(),
-  };
-}
 
 function _resolveStartPayload(
   input: WorkflowStartInput,
   autoSession: ClientAutoSession | undefined,
 ): SessionPayload | undefined {
-  const fromContext = _currentSessionPayload();
+  const fromContext = getCurrentSessionPayload();
   if (fromContext) return fromContext;
   if (!autoSession) return undefined;
 
@@ -56,7 +45,7 @@ function _stampCurrentSession<I extends { headers: Headers }, R>(
   input: I,
   next: (input: I) => R,
 ): R {
-  const payload = _currentSessionPayload();
+  const payload = getCurrentSessionPayload();
   return next({ ...input, headers: inject(input.headers, payload) });
 }
 

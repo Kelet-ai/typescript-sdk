@@ -66,10 +66,11 @@ export interface KeletPluginOptions {
    * hops carry it via headers. See {@link ClientAutoSession} for the escape
    * hatch (deriving from ``workflowType + workflowId``). */
   readonly autoSession?: ClientAutoSession;
-  /** Auto-derive an activity-side session when no inbound header is present.
-   * Defaults to ``false``. ``true`` derives from the Temporal run ID
-   * (``info.workflowExecution.runId``). Use this when you have workflows
-   * started via non-TS clients / CLI / schedules — see
+  /** Auto-derive a session when no inbound header is present. Defaults to
+   * ``false``. ``true`` derives from the Temporal run ID: the top-level
+   * workflow's inbound interceptor stamps ``workflowInfo().runId`` so the
+   * whole chain (child workflows, activities) shares one session. Use this
+   * when workflows are started via non-TS clients / CLI / schedules — see
    * {@link ActivityAutoSession}. */
   readonly activityAutoSession?: ActivityAutoSession;
   /** Bundle Temporal's ``OpenTelemetryPlugin`` so users get linked OTel
@@ -130,6 +131,16 @@ export class KeletPlugin extends SimplePlugin {
       new URL('./workflow-interceptors.js', import.meta.url),
     );
 
+    // The workflow VM is isolated — the plugin can't pass a value into it,
+    // only choose which module paths to load. So the run-ID auto-session
+    // fallback is enabled by *appending* an enabler module whose top-level
+    // side effect flips a VM-global flag the interceptor reads. Module
+    // presence is the on/off signal; gate it on ``activityAutoSession``.
+    const runIdAutoSession = opts.activityAutoSession === true;
+    const autoSessionEnablerPath = runIdAutoSession
+      ? fileURLToPath(new URL('./workflow-autosession.js', import.meta.url))
+      : undefined;
+
     super({
       name: 'kelet.KeletPlugin',
       clientInterceptors: (existing): ClientInterceptors => {
@@ -146,7 +157,11 @@ export class KeletPlugin extends SimplePlugin {
           buildActivityInterceptorsFactory(opts.activityAutoSession ?? false),
         ];
         const existingWfModules = merged.workflowModules ?? [];
-        merged.workflowModules = [...existingWfModules, workflowInterceptorsPath];
+        merged.workflowModules = [
+          ...existingWfModules,
+          workflowInterceptorsPath,
+          ...(autoSessionEnablerPath ? [autoSessionEnablerPath] : []),
+        ];
         return merged;
       },
       runContext: async (next) => {

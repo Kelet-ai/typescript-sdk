@@ -26,37 +26,44 @@ import type {
   Headers,
   Next,
 } from '@temporalio/workflow';
-import { agenticSession, getMetadata, getSessionId, getUserId } from '../context';
-import { extract, inject, type SessionPayload } from './headers';
-
-function _currentSessionPayload(): SessionPayload | undefined {
-  const sessionId = getSessionId();
-  if (!sessionId) return undefined;
-  return {
-    sessionId,
-    userId: getUserId(),
-    metadata: getMetadata(),
-  };
-}
+import { workflowInfo } from '@temporalio/workflow';
+import { agenticSession } from '../context';
+import { extract, getCurrentSessionPayload, inject } from './headers';
+import { isRunIdAutoSessionEnabled } from './workflow-autosession';
 
 /** If the inbound headers carry a Kelet session, run ``next()`` inside an
  * ``agenticSession`` for that payload; otherwise pass through. Centralises the
  * extract → guard → wrap pattern so all five inbound handlers stay in sync.
+ *
+ * ``fallbackSessionId`` is used only when no header is present — it lets the
+ * top-level workflow seed a run-ID session so child workflows / activities
+ * inherit it via outbound headers (one session per chain). Signal / query /
+ * update handlers pass no fallback: a mid-flight signal must not mint a new
+ * root session.
  */
 function _withInboundSession<T>(
   headers: Headers,
   next: () => T | Promise<T>,
+  fallbackSessionId?: string,
 ): T | Promise<T> {
   const payload = extract(headers);
-  if (!payload) return next();
+  const sessionId = payload?.sessionId ?? fallbackSessionId;
+  if (!sessionId) return next();
   return agenticSession(
     {
-      sessionId: payload.sessionId,
-      userId: payload.userId,
-      metadata: payload.metadata,
+      sessionId,
+      userId: payload?.userId,
+      metadata: payload?.metadata,
     },
     next,
   );
+}
+
+/** Run-ID fallback for the top-level workflow, when enabled and no header is
+ * present. ``workflowInfo().runId`` is deterministic and replay-safe. */
+function _runIdFallback(): string | undefined {
+  if (!isRunIdAutoSessionEnabled()) return undefined;
+  return workflowInfo().runId || undefined;
 }
 
 /** Stamp the current session into outbound headers and call ``next``. */
@@ -64,7 +71,7 @@ function _withOutboundHeaders<I extends { headers: Headers }, R>(
   input: I,
   next: (input: I) => R,
 ): R {
-  const payload = _currentSessionPayload();
+  const payload = getCurrentSessionPayload();
   return next({ ...input, headers: inject(input.headers, payload) });
 }
 
@@ -73,7 +80,7 @@ class KeletWorkflowInbound implements WorkflowInboundCallsInterceptor {
     input: WorkflowExecuteInput,
     next: Next<WorkflowInboundCallsInterceptor, 'execute'>,
   ): Promise<unknown> {
-    return _withInboundSession(input.headers, () => next(input));
+    return _withInboundSession(input.headers, () => next(input), _runIdFallback());
   }
 
   async handleSignal(

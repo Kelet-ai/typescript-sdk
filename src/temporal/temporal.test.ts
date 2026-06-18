@@ -444,3 +444,43 @@ describe('workflow-interceptors module', () => {
     expect(outbound!.length).toBe(1);
   });
 });
+
+// ───────────────── workflow run-ID auto-session enabler ─────────────────
+
+describe('workflow-autosession enabler', () => {
+  // The workflow VM is isolated, so KeletPlugin can't pass the flag in — it
+  // signals "enabled" by adding this module to workflowModules. Importing it
+  // here mimics the VM loading it: the top-level side effect flips the flag.
+  test('importing the enabler sets the VM-global flag', async () => {
+    const mod = (await import('./workflow-autosession')) as {
+      isRunIdAutoSessionEnabled: () => boolean;
+    };
+    expect(mod.isRunIdAutoSessionEnabled()).toBe(true);
+  });
+});
+
+// ───────────────── G2. activityAutoSession gates the enabler module ─────────
+
+describe('G. Plugin composition — run-ID enabler wiring', () => {
+  function _workflowModules(plugin: KeletPlugin): string[] {
+    const out = plugin.configureWorker({ workflowsPath: 'x', taskQueue: 't' } as never);
+    return (out.interceptors?.workflowModules ?? []) as string[];
+  }
+
+  test('G5: activityAutoSession=true appends the autosession enabler module', () => {
+    const mods = _workflowModules(new KeletPlugin({ activityAutoSession: true, includeOtelPlugin: false }));
+    expect(mods.some((m) => m.includes('workflow-interceptors'))).toBe(true);
+    expect(mods.some((m) => m.includes('workflow-autosession'))).toBe(true);
+  });
+
+  test('G6: activityAutoSession unset → no autosession enabler module', () => {
+    const mods = _workflowModules(new KeletPlugin({ includeOtelPlugin: false }));
+    expect(mods.some((m) => m.includes('workflow-interceptors'))).toBe(true);
+    expect(mods.some((m) => m.includes('workflow-autosession'))).toBe(false);
+  });
+
+  test('G7: activityAutoSession=callable → no enabler (run-ID fallback is the boolean-only path)', () => {
+    const mods = _workflowModules(new KeletPlugin({ activityAutoSession: () => 's', includeOtelPlugin: false }));
+    expect(mods.some((m) => m.includes('workflow-autosession'))).toBe(false);
+  });
+});
